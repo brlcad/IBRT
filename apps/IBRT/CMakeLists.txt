@@ -56,13 +56,7 @@ elseif(UNIX)
 endif()
 
 if(UNIX)
-  set(_ibrt_runtime_rpath
-    "${_ibrt_origin}"
-    ${IBRT_EXTERNAL_RUNTIME_LIBRARY_DIRS}
-    "${IBRT_BEXT_LIBRARY_DIR}"
-    "${IBRT_BRLCAD_LIBRARY_DIR}")
-  list(REMOVE_DUPLICATES _ibrt_runtime_rpath)
-
+  set(_ibrt_runtime_rpath "${_ibrt_origin};${IBRT_BEXT_LIBRARY_DIR};${IBRT_BRLCAD_LIBRARY_DIR}")
   if(APPLE)
     set(_ibrt_runtime_patterns
       "${IBRT_BEXT_LIBRARY_DIR}/libospray.dylib"
@@ -70,6 +64,7 @@ if(UNIX)
       "${IBRT_BEXT_LIBRARY_DIR}/libospray_module_cpu*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/librkcommon*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/libembree*.dylib"
+      "${IBRT_BEXT_LIBRARY_DIR}/libtbb*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/libispcrt*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/libopenvkl*.dylib")
   else()
@@ -209,14 +204,6 @@ function(ibrt_deploy_runtime_bundle target)
           COMMENT "Copying local OSPRay runtime library ${_lib_name} for ${target}...")
       endif()
     endforeach()
-
-    if(APPLE)
-      add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND}
-          -DIBRT_RUNTIME_DIR="$<TARGET_FILE_DIR:${target}>"
-          -P "${PROJECT_SOURCE_DIR}/cmake/IBRTRemoveAppleTbbRuntime.cmake"
-        COMMENT "Removing app-local TBB dylibs so OSPRay and IBRT share one TBB runtime...")
-    endif()
   endif()
 endfunction()
 
