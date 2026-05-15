@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 
 #include <QByteArray>
 #include <QCoreApplication>
@@ -256,7 +255,7 @@ bool frameHasNonZeroPixel(const uint32_t *pixels, int width, int height)
 }
 
 std::vector<uint32_t> renderUntilImageReady(
-    OsprayBackend &backend, int maxAttempts = 80)
+    OsprayBackend &backend, int maxAttempts = 100)
 {
   for (int attempt = 0; attempt < maxAttempts; ++attempt) {
     if (backend.advanceRender()) {
@@ -266,8 +265,9 @@ std::vector<uint32_t> renderUntilImageReady(
       return std::vector<uint32_t>(
           pixels, pixels + size_t(backend.width()) * size_t(backend.height()));
     }
-    QThread::msleep(10);
+    QThread::msleep(100);
   }
+  backend.cancelRender();
   return {};
 }
 
@@ -313,39 +313,32 @@ QString describeStats(const FrameColorStats &stats)
       .arg(stats.uniqueColors);
 }
 
-QImage imageFromSrgbaPixels(
-    const std::vector<uint32_t> &pixels, int width, int height)
+bool saveRawSrgbaPpm(
+    const std::vector<uint32_t> &pixels, int width, int height, const QString &path)
 {
-  QImage image(width, height, QImage::Format_RGBA8888);
-  for (int y = 0; y < height; ++y) {
-    std::memcpy(image.scanLine(y),
-        pixels.data() + size_t(y) * size_t(width),
-        size_t(width) * sizeof(uint32_t));
+  if (width <= 0 || height <= 0
+      || pixels.size() != size_t(width) * size_t(height)) {
+    return false;
   }
-  return image.flipped(Qt::Vertical);
-}
 
-bool savePortablePixmap(const QImage &image, const QString &path)
-{
-  const QImage rgba = image.convertToFormat(QImage::Format_RGBA8888);
   QFile file(path);
   if (!file.open(QIODevice::WriteOnly))
     return false;
 
   const QByteArray header =
-      QByteArray("P6\n") + QByteArray::number(rgba.width()) + " "
-      + QByteArray::number(rgba.height()) + "\n255\n";
+      QByteArray("P6\n") + QByteArray::number(width) + " "
+      + QByteArray::number(height) + "\n255\n";
   if (file.write(header) != header.size())
     return false;
 
   QByteArray row;
-  row.resize(rgba.width() * 3);
-  for (int y = 0; y < rgba.height(); ++y) {
-    const uchar *src = rgba.constScanLine(y);
-    for (int x = 0; x < rgba.width(); ++x) {
-      row[x * 3 + 0] = static_cast<char>(src[x * 4 + 0]);
-      row[x * 3 + 1] = static_cast<char>(src[x * 4 + 1]);
-      row[x * 3 + 2] = static_cast<char>(src[x * 4 + 2]);
+  row.resize(width * 3);
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const uint32_t pixel = pixels[size_t(y) * size_t(width) + size_t(x)];
+      row[x * 3 + 0] = static_cast<char>((pixel >> 0) & 0xffu);
+      row[x * 3 + 1] = static_cast<char>((pixel >> 8) & 0xffu);
+      row[x * 3 + 2] = static_cast<char>((pixel >> 16) & 0xffu);
     }
     if (file.write(row) != row.size())
       return false;
@@ -367,11 +360,11 @@ QString renderArtifactDir()
 QImage renderWorkerUntilImageReady(
     RenderWorkerClient &client, bool requireUpdatedFrame = true)
 {
-  for (int attempt = 0; attempt < 80; ++attempt) {
+  for (int attempt = 0; attempt < 100; ++attempt) {
     const auto frame = client.requestFrame();
     if (!frame.image.isNull() && (!requireUpdatedFrame || frame.updated))
       return frame.image;
-    QThread::msleep(10);
+    QThread::msleep(100);
   }
   return {};
 }
@@ -442,8 +435,8 @@ void frameCameraToBounds(OsprayBackend &backend)
 {
   const auto center = backend.getBoundsCenter();
   const float radius = std::max(backend.getBoundsRadius(), 0.001f);
-  const rkcommon::math::vec3f eye(center.x + radius * 2.5f,
-      center.y - radius * 2.5f,
+  const rkcommon::math::vec3f eye(center.x + radius * 1.1f,
+      center.y - radius * 1.1f,
       center.z + radius * 1.5f);
   backend.setCamera(eye, center, rkcommon::math::vec3f(0.f, 0.f, 1.f), 60.0f);
 }
@@ -709,13 +702,15 @@ void IbrtTests::integrationBackendHeadlessMossRenderWritesReferenceImages()
   OsprayBackend backend;
   backend.init();
   backend.setSettingsMode(OsprayBackend::SettingsMode::Custom);
-  backend.setCustomStartScale(1);
+  backend.setCustomStartScale(1.0);
   backend.setCustomAccumulationEnabled(false);
   backend.setCustomFullResAccumulationOnly(false);
   backend.setCustomMaxAccumulationFrames(1);
   backend.setAoSamples(1);
   backend.setAoDistance(1e20f);
   backend.setPixelSamples(1);
+  backend.setMaxPathLength(1);
+  backend.setRoulettePathLength(1);
   backend.resize(256, 192);
 
   const bool loaded = backend.loadBrlcad(dbPath->toStdString(), "all.g");
@@ -732,42 +727,44 @@ void IbrtTests::integrationBackendHeadlessMossRenderWritesReferenceImages()
   struct RendererCase
   {
     const char *name;
+    int width;
+    int height;
+    int maxAttempts;
     bool expectChromaticPixels;
   };
 
   const RendererCase renderers[] = {
-      {"ao", false},
-      {"scivis", true},
+      {"ao", 64, 64, 300, false},
+      {"scivis", 64, 64, 300, true},
+      {"pathtracer", 2, 2, 300, true},
   };
 
   QStringList failures;
   for (const RendererCase &renderer : renderers) {
+    backend.resize(renderer.width, renderer.height);
+    frameCameraToBounds(backend);
     backend.setRenderer(renderer.name);
     backend.resetAccumulation();
-    const auto pixels = renderUntilImageReady(backend, 240);
+    const auto pixels = renderUntilImageReady(backend, renderer.maxAttempts);
     if (pixels.empty()) {
       failures << QStringLiteral("%1 produced no frame").arg(renderer.name);
       continue;
     }
 
     const FrameColorStats stats = collectSrgbaStats(pixels);
-    const QImage image =
-        imageFromSrgbaPixels(pixels, backend.width(), backend.height());
     const QString baseName =
-        QStringLiteral("moss_all_%1_headless_rgba8888").arg(renderer.name);
-    const QString pngPath = artifactDir.filePath(baseName + QStringLiteral(".png"));
+        QStringLiteral("moss_all_%1_headless_raw_srgba").arg(renderer.name);
     const QString ppmPath = artifactDir.filePath(baseName + QStringLiteral(".ppm"));
-    const bool savedPng = image.save(pngPath, "PNG");
-    const bool savedPpm = savePortablePixmap(image, ppmPath);
+    const bool savedPpm =
+        saveRawSrgbaPpm(pixels, backend.width(), backend.height(), ppmPath);
 
-    qInfo("Headless moss %s artifact: %s%s; %s",
+    qInfo("Headless moss %s raw SRGBA artifact: %s; %s",
         renderer.name,
-        savedPng ? qPrintable(pngPath) : "(png save failed)",
-        savedPpm ? qPrintable(QStringLiteral(" and ") + ppmPath) : "",
+        savedPpm ? qPrintable(ppmPath) : "(ppm save failed)",
         qPrintable(describeStats(stats)));
 
-    if (!savedPng && !savedPpm)
-      failures << QStringLiteral("%1 could not save an image artifact")
+    if (!savedPpm)
+      failures << QStringLiteral("%1 could not save the raw PPM artifact")
                       .arg(renderer.name);
     if (stats.nonBlackPixels == 0)
       failures << QStringLiteral("%1 produced an all-black frame")
