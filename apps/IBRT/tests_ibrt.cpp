@@ -3,18 +3,24 @@
 
 #include <QtTest/QtTest>
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
 
+#include <QByteArray>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QStringList>
 #include <QTemporaryDir>
 #include <QThread>
 #include <Qt>
 
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include <ospray/ospray.h>
@@ -60,6 +66,7 @@ class IbrtTests : public QObject
   void integrationBackendBrlcadToOsprayProducesGeometry();
   void integrationBackendValidBrlcadSceneDoesNotUseDefaultBounds();
   void integrationBackendRenderProducesNonEmptyFrame();
+  void integrationBackendHeadlessMossRenderWritesReferenceImages();
   void integrationBackendRenderProducesConsistentFrameForSameInput();
   void integrationBackendGeometryChangeAffectsRenderedOutput();
   void integrationWorkerSmokeTestWorkerLifecycle();
@@ -78,6 +85,30 @@ class IbrtTests : public QObject
 };
 
 namespace {
+
+void testOsprayErrorCallback(void *, OSPError error, const char *message)
+{
+  std::fprintf(stderr,
+      "IBRT test OSPRay error %d: %s\n",
+      static_cast<int>(error),
+      message ? message : "(no message)");
+}
+
+void ensureOsprayLoadModuleForTests(const char *moduleName)
+{
+  const QByteArray module(moduleName);
+  QByteArray modules = qgetenv("OSPRAY_LOAD_MODULES");
+  const QList<QByteArray> existing = modules.split(',');
+  for (const QByteArray &entry : existing) {
+    if (entry.trimmed() == module)
+      return;
+  }
+
+  if (!modules.isEmpty() && !modules.endsWith(','))
+    modules.append(',');
+  modules.append(module);
+  qputenv("OSPRAY_LOAD_MODULES", modules);
+}
 
 std::optional<QString> makeExampleBrlcadDb()
 {
@@ -200,6 +231,17 @@ std::optional<QString> makeExampleBrlcadDb()
 #endif
 }
 
+std::optional<QString> defaultMossDbPath()
+{
+#ifdef BRLCAD_INSTALL_PREFIX
+  const QString dbPath =
+      QDir(QStringLiteral(BRLCAD_INSTALL_PREFIX)).filePath(QStringLiteral("share/db/moss.g"));
+  if (QFileInfo::exists(dbPath))
+    return dbPath;
+#endif
+  return std::nullopt;
+}
+
 bool frameHasNonZeroPixel(const uint32_t *pixels, int width, int height)
 {
   if (!pixels || width <= 0 || height <= 0)
@@ -213,9 +255,10 @@ bool frameHasNonZeroPixel(const uint32_t *pixels, int width, int height)
   return false;
 }
 
-std::vector<uint32_t> renderUntilImageReady(OsprayBackend &backend)
+std::vector<uint32_t> renderUntilImageReady(
+    OsprayBackend &backend, int maxAttempts = 80)
 {
-  for (int attempt = 0; attempt < 80; ++attempt) {
+  for (int attempt = 0; attempt < maxAttempts; ++attempt) {
     if (backend.advanceRender()) {
       const uint32_t *pixels = backend.pixels();
       if (!pixels)
@@ -226,6 +269,99 @@ std::vector<uint32_t> renderUntilImageReady(OsprayBackend &backend)
     QThread::msleep(10);
   }
   return {};
+}
+
+struct FrameColorStats
+{
+  size_t totalPixels = 0;
+  size_t nonBlackPixels = 0;
+  size_t chromaticPixels = 0;
+  size_t uniqueColors = 0;
+};
+
+FrameColorStats collectSrgbaStats(const std::vector<uint32_t> &pixels)
+{
+  FrameColorStats stats;
+  stats.totalPixels = pixels.size();
+
+  std::unordered_set<uint32_t> uniqueColors;
+  uniqueColors.reserve(std::min<size_t>(pixels.size(), 4096));
+  for (const uint32_t pixel : pixels) {
+    uniqueColors.insert(pixel);
+    const uint32_t r = (pixel >> 0) & 0xffu;
+    const uint32_t g = (pixel >> 8) & 0xffu;
+    const uint32_t b = (pixel >> 16) & 0xffu;
+    if (r != 0u || g != 0u || b != 0u)
+      ++stats.nonBlackPixels;
+
+    const uint32_t maxChannel = std::max({r, g, b});
+    const uint32_t minChannel = std::min({r, g, b});
+    if (maxChannel > minChannel + 8u)
+      ++stats.chromaticPixels;
+  }
+
+  stats.uniqueColors = uniqueColors.size();
+  return stats;
+}
+
+QString describeStats(const FrameColorStats &stats)
+{
+  return QStringLiteral("pixels=%1 nonBlack=%2 chromatic=%3 unique=%4")
+      .arg(stats.totalPixels)
+      .arg(stats.nonBlackPixels)
+      .arg(stats.chromaticPixels)
+      .arg(stats.uniqueColors);
+}
+
+QImage imageFromSrgbaPixels(
+    const std::vector<uint32_t> &pixels, int width, int height)
+{
+  QImage image(width, height, QImage::Format_RGBA8888);
+  for (int y = 0; y < height; ++y) {
+    std::memcpy(image.scanLine(y),
+        pixels.data() + size_t(y) * size_t(width),
+        size_t(width) * sizeof(uint32_t));
+  }
+  return image.flipped(Qt::Vertical);
+}
+
+bool savePortablePixmap(const QImage &image, const QString &path)
+{
+  const QImage rgba = image.convertToFormat(QImage::Format_RGBA8888);
+  QFile file(path);
+  if (!file.open(QIODevice::WriteOnly))
+    return false;
+
+  const QByteArray header =
+      QByteArray("P6\n") + QByteArray::number(rgba.width()) + " "
+      + QByteArray::number(rgba.height()) + "\n255\n";
+  if (file.write(header) != header.size())
+    return false;
+
+  QByteArray row;
+  row.resize(rgba.width() * 3);
+  for (int y = 0; y < rgba.height(); ++y) {
+    const uchar *src = rgba.constScanLine(y);
+    for (int x = 0; x < rgba.width(); ++x) {
+      row[x * 3 + 0] = static_cast<char>(src[x * 4 + 0]);
+      row[x * 3 + 1] = static_cast<char>(src[x * 4 + 1]);
+      row[x * 3 + 2] = static_cast<char>(src[x * 4 + 2]);
+    }
+    if (file.write(row) != row.size())
+      return false;
+  }
+
+  return true;
+}
+
+QString renderArtifactDir()
+{
+  const QByteArray overrideDir = qgetenv("IBRT_TEST_ARTIFACT_DIR");
+  if (!overrideDir.isEmpty())
+    return QString::fromLocal8Bit(overrideDir);
+
+  return QDir(QCoreApplication::applicationDirPath())
+      .filePath(QStringLiteral("test-artifacts"));
 }
 
 QImage renderWorkerUntilImageReady(
@@ -316,6 +452,8 @@ void frameCameraToBounds(OsprayBackend &backend)
 
 void IbrtTests::initTestCase()
 {
+  ensureOsprayLoadModuleForTests("brl_cad");
+
   int argc = 0;
   const char **argv = nullptr;
   const OSPError initResult = ospInit(&argc, argv);
@@ -324,6 +462,7 @@ void IbrtTests::initTestCase()
   OSPDevice device = ospNewDevice("cpu");
   QVERIFY2(device != nullptr, "ospNewDevice(\"cpu\") failed in test setup.");
   ospSetCurrentDevice(device);
+  ospDeviceSetErrorCallback(device, testOsprayErrorCallback, nullptr);
   ospCommit(reinterpret_cast<OSPObject>(device));
   QCOMPARE(ospLoadModule("cpu"), OSP_NO_ERROR);
 }
@@ -559,6 +698,86 @@ void IbrtTests::integrationBackendRenderProducesNonEmptyFrame()
     return;
 
   QVERIFY(frameHasNonZeroPixel(pixels.data(), backend.width(), backend.height()));
+}
+
+void IbrtTests::integrationBackendHeadlessMossRenderWritesReferenceImages()
+{
+  const auto dbPath = defaultMossDbPath();
+  if (!dbPath.has_value())
+    QSKIP("Installed BRL-CAD moss.g fixture is unavailable.");
+
+  OsprayBackend backend;
+  backend.init();
+  backend.setSettingsMode(OsprayBackend::SettingsMode::Custom);
+  backend.setCustomStartScale(1);
+  backend.setCustomAccumulationEnabled(false);
+  backend.setCustomFullResAccumulationOnly(false);
+  backend.setCustomMaxAccumulationFrames(1);
+  backend.setAoSamples(1);
+  backend.setAoDistance(1e20f);
+  backend.setPixelSamples(1);
+  backend.resize(256, 192);
+
+  const bool loaded = backend.loadBrlcad(dbPath->toStdString(), "all.g");
+  const QByteArray loadError = QByteArray::fromStdString(backend.lastError());
+  QVERIFY2(loaded, loadError.constData());
+
+  frameCameraToBounds(backend);
+
+  QDir artifactDir(renderArtifactDir());
+  QVERIFY2(QDir().mkpath(artifactDir.absolutePath()),
+      qPrintable(QStringLiteral("Could not create artifact dir: %1")
+                     .arg(artifactDir.absolutePath())));
+
+  struct RendererCase
+  {
+    const char *name;
+    bool expectChromaticPixels;
+  };
+
+  const RendererCase renderers[] = {
+      {"ao", false},
+      {"scivis", true},
+  };
+
+  QStringList failures;
+  for (const RendererCase &renderer : renderers) {
+    backend.setRenderer(renderer.name);
+    backend.resetAccumulation();
+    const auto pixels = renderUntilImageReady(backend, 240);
+    if (pixels.empty()) {
+      failures << QStringLiteral("%1 produced no frame").arg(renderer.name);
+      continue;
+    }
+
+    const FrameColorStats stats = collectSrgbaStats(pixels);
+    const QImage image =
+        imageFromSrgbaPixels(pixels, backend.width(), backend.height());
+    const QString baseName =
+        QStringLiteral("moss_all_%1_headless_rgba8888").arg(renderer.name);
+    const QString pngPath = artifactDir.filePath(baseName + QStringLiteral(".png"));
+    const QString ppmPath = artifactDir.filePath(baseName + QStringLiteral(".ppm"));
+    const bool savedPng = image.save(pngPath, "PNG");
+    const bool savedPpm = savePortablePixmap(image, ppmPath);
+
+    qInfo("Headless moss %s artifact: %s%s; %s",
+        renderer.name,
+        savedPng ? qPrintable(pngPath) : "(png save failed)",
+        savedPpm ? qPrintable(QStringLiteral(" and ") + ppmPath) : "",
+        qPrintable(describeStats(stats)));
+
+    if (!savedPng && !savedPpm)
+      failures << QStringLiteral("%1 could not save an image artifact")
+                      .arg(renderer.name);
+    if (stats.nonBlackPixels == 0)
+      failures << QStringLiteral("%1 produced an all-black frame")
+                      .arg(renderer.name);
+    if (renderer.expectChromaticPixels && stats.chromaticPixels == 0)
+      failures << QStringLiteral("%1 produced no chromatic pixels (%2)")
+                      .arg(renderer.name, describeStats(stats));
+  }
+
+  QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QStringLiteral("; "))));
 }
 
 void IbrtTests::integrationBackendRenderProducesConsistentFrameForSameInput()
