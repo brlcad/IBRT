@@ -1,6 +1,6 @@
 ## Copyright (c) 2026 BRL-CAD Visualizer contributors
 ## SPDX-License-Identifier: MIT
 
-if(IBRT_BUILD_VIEWER OR (IBRT_BUILD_TESTS AND BUILD_TESTING))
-  add_subdirectory(IBRT)
+if(IBRT_BUILD_PLUGIN_BRL_CAD)
+  add_subdirectory(brl_cad)
 endif()

@@ -1,38 +1,23 @@
 #!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
-ROOT="/Users/morrison/IBRT"
-BUILD_ROOT="$ROOT/.build"
-DEPS_PREFIX="/Users/morrison/bext/.build/install"
-BRLCAD_PREFIX="/Users/morrison/brlcad.main/.build"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+BUILD_DIR="${BUILD_DIR:-$ROOT/build/local}"
+GENERATOR="${CMAKE_GENERATOR:-Ninja}"
+BUILD_TYPE="${CMAKE_BUILD_TYPE:-RelWithDebInfo}"
+RENDER_WORKER="${IBRT_ENABLE_RENDER_WORKER:-ON}"
 
-cmake -S "$ROOT/brl_cad_standalone" \
-  -B "$BUILD_ROOT/brl_cad_standalone" \
-  -G "Unix Makefiles" \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DCMAKE_PREFIX_PATH="$DEPS_PREFIX" \
-  -DOSPRAY_PREFIX="$DEPS_PREFIX" \
-  -DRKCOMMON_PREFIX="$DEPS_PREFIX" \
-  -DEMBREE_PREFIX="$DEPS_PREFIX" \
-  -DOPENVKL_PREFIX="$DEPS_PREFIX" \
-  -DBRLCAD_PREFIX="$BRLCAD_PREFIX"
+: "${BEXT_INSTALL_DIR:?set BEXT_INSTALL_DIR to the bext install tree}"
+: "${BRLCAD_PREFIX:?set BRLCAD_PREFIX to the BRL-CAD install prefix}"
 
-cmake --build "$BUILD_ROOT/brl_cad_standalone"
-cmake --install "$BUILD_ROOT/brl_cad_standalone"
-
-cmake -S "$ROOT/QtOsprayViewer/QtOsprayViewer" \
-  -B "$BUILD_ROOT/QtOsprayViewer" \
-  -G "Unix Makefiles" \
-  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DCMAKE_PREFIX_PATH="$DEPS_PREFIX" \
-  -DQt6_DIR="$DEPS_PREFIX/lib/cmake/Qt6" \
-  -DOSPRAY_PREFIX="$DEPS_PREFIX" \
-  -DRKCOMMON_PREFIX="$DEPS_PREFIX" \
+cmake -S "$ROOT" \
+  -B "$BUILD_DIR" \
+  -G "$GENERATOR" \
+  -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+  -DBEXT_INSTALL_DIR="$BEXT_INSTALL_DIR" \
   -DBRLCAD_PREFIX="$BRLCAD_PREFIX" \
-  -DIBRT_ENABLE_RENDER_WORKER=ON
+  -DIBRT_ENABLE_RENDER_WORKER="$RENDER_WORKER"
 
-cmake --build "$BUILD_ROOT/QtOsprayViewer"
-ctest --test-dir "$BUILD_ROOT/QtOsprayViewer"
-
-"$BUILD_ROOT/QtOsprayViewer/IBRT"
+cmake --build "$BUILD_DIR"
+ctest --test-dir "$BUILD_DIR" --output-on-failure

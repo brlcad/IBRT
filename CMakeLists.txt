@@ -1,73 +1,44 @@
-## Copyright 2009 Intel Corporation
-## SPDX-License-Identifier: Apache-2.0
+## Copyright (c) 2026 BRL-CAD Visualizer contributors
+## SPDX-License-Identifier: MIT
 
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.20)
 
-##############################################################
-# Language setup
-##############################################################
+project(IBRT VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_DISABLE_SOURCE_CHANGES ON)
 set(CMAKE_DISABLE_IN_SOURCE_BUILD ON)
 
-set(CMAKE_C_STANDARD   99)
-set(CMAKE_CXX_STANDARD 11)
-
-set(CMAKE_C_STANDARD_REQUIRED   ON)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_INSTALL_MESSAGE LAZY)
 
-##############################################################
-# Establish project
-##############################################################
+include(GNUInstallDirs)
+include(CTest)
 
-include(cmake/ospray_version.cmake)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-project(OSPRay VERSION ${OSPRAY_VERSION} LANGUAGES C CXX)
-
-##############################################################
-# CMake modules and macro files
-##############################################################
-
-list(APPEND CMAKE_MODULE_PATH
-  ${PROJECT_SOURCE_DIR}/cmake
-  ${PROJECT_SOURCE_DIR}/cmake/compiler
-)
-
-include(ispc)
-include(ospray_macros)
-include(ospray_options)
-include(package)
-
-if (OSPRAY_INSTALL_DEPENDENCIES)
-  include(ospray_redistribute_deps)
+set(IBRT_RENDER_WORKER_DEFAULT OFF)
+if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  set(IBRT_RENDER_WORKER_DEFAULT ON)
 endif()
 
-##############################################################
-# Add library and executable targets
-##############################################################
+option(IBRT_BUILD_VIEWER "Build the IBRT desktop viewer" ON)
+option(IBRT_BUILD_PLUGIN_BRL_CAD "Build the BRL-CAD OSPRay plugin" ON)
+option(IBRT_BUILD_TESTS "Build the IBRT test suite" ${BUILD_TESTING})
+option(IBRT_ENABLE_RENDER_WORKER "Build the out-of-process render worker" ${IBRT_RENDER_WORKER_DEFAULT})
 
-## Main OSPRay library ##
-add_subdirectory(ospray)
+set(BEXT_INSTALL_DIR "" CACHE PATH
+  "Path to the bext install tree that provides OSPRay, Qt, and related dependencies")
+set(BRLCAD_PREFIX "" CACHE PATH "Path to the BRL-CAD install prefix")
 
-## Modules ##
-add_subdirectory(brl_cad_standalone)
+include(IBRTDependencies)
+ibrt_configure_dependencies()
 
-## OSPRay sample apps ##
+add_subdirectory(plugins)
 add_subdirectory(apps)
-
-## Regression test images target ##
-add_subdirectory(test_image_data)
-
-## Clang-format target ##
-if (OSPRAY_ENABLE_TARGET_CLANGFORMAT)
-  include(clang-format)
-endif()
-
-# Must be last
-include(CPack)

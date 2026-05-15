@@ -1,82 +1,54 @@
 *~
 *#
-bin
-*.user*
-.build
-install*
-*.sw?
-tags
-.ycm_extra_conf.pyc
-*.autosave
-*DS_Store*
-*.gz
-*.rpm
-*.zip
 *.bak
 *.patch
-.vscode
-deps
-tbb
-embree
-ispc
-./ospray-doc
-readme.pdf
-!/modules
-/modules/*
-!/modules/cpu
-!/modules/denoiser
-!/modules/mpi
-!/modules/multiDevice
-!/modules/pluggableGeometryExample
-!/modules/simdGeometryExample
+*.sw?
 *.vim
-.idea/
-premake.local.*
-cmake-build*/
-.clangd
-compile_commands.json
 .cache/
+.qt/
 .vs/
-**/.vs/
-bw/
-brl_cad_standalone/build*/
-QtOsprayViewer/QtOsprayViewer/build*/
-QtOsprayViewer/QtOsprayViewer/**/imgui.ini
-modules/pluggableGeometryExample/brl_cad_module/out/
-bv/
-scripts/superbuild/build/
-QtOsprayViewer/build*/
-**/.qtcreator/
+.idea/
+.build/
+.artifacts/
+OBJ/
+build/
+build-*/
+cmake-build*/
+dist/
+install/
+out/
+deps/
+compile_commands.json
 imgui.ini
-/dist
-/QtOsprayViewer/QtOsprayViewer/IBRT
+readme.pdf
 
-# Local BRL-CAD module build tree
-/bcs/
-
-# In-source CMake generator artifacts
-**/CMakeFiles/
+# CMake and generator artifacts
 **/CMakeCache.txt
-**/cmake_install.cmake
+**/CMakeFiles/
 **/CMakeScripts/
+**/CTestTestfile.cmake
 **/Makefile
+**/Testing/
+**/cmake_install.cmake
 **/CMakeUserPresets.json
 
-# Visual Studio local database/cache files
+# IDE and platform artifacts
 *.VC.db
 *.VC.opendb
+*.autosave
+*.user*
+*DS_Store*
+Thumbs.db
+.clangd
+
+# App-specific build outputs
+apps/IBRT/build*/
+apps/IBRT/Debug/
+apps/IBRT/Release/
+apps/IBRT/x64/
 
 # Local probes / crash artifacts
 /tmp_*
 /worker_*.obj
 /(BRL-CAD)-*-bomb.log
 /IBRT_crash_*.dmp
-
-# Keep the generated solution plus packaged runtime artifacts for the main
-# viewer build tree. Ignore the rest of the build output.
-!/QtOsprayViewer/QtOsprayViewer/build-clean/
-/QtOsprayViewer/QtOsprayViewer/build-clean/*
-!/QtOsprayViewer/QtOsprayViewer/build-clean/IBRT.sln
-!/QtOsprayViewer/QtOsprayViewer/build-clean/IBRT.zip
-!/QtOsprayViewer/QtOsprayViewer/build-clean/IBRT/
-!/QtOsprayViewer/QtOsprayViewer/build-clean/IBRT/**

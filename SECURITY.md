@@ -1,14 +1,12 @@
-Security Policy
-===============
+# Security Policy
 
-Intel is committed to rapidly addressing security vulnerabilities
-affecting our customers and providing clear guidance on the solution,
-impact, severity and mitigation.
+If you discover a security issue in IBRT or one of the plugins in this repo, please avoid opening a public issue with exploit details.
 
-Reporting a Vulnerability
--------------------------
+Report the issue through the private maintainer channel used for this project, and include:
 
-Please [report any security vulnerabilities][guidelines] in this project
-utilizing the [guidelines here][guidelines].
+- affected component
+- impact summary
+- reproduction details
+- any known mitigations or patches
 
-[guidelines]: https://www.intel.com/content/www/us/en/security-center/vulnerability-handling-guidelines.html "Vulnerability Handling Guidelines"
+Third-party dependency issues should also be reported upstream when appropriate, but project-specific integration issues should still be reported here privately first.
