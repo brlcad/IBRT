@@ -51,6 +51,7 @@ class OsprayBackend
       float fovyDeg);
 
   void resetAccumulation();
+  void cancelRender();
   bool advanceRender(int timeBudgetMs = 2);
   const uint32_t *pixels() const;
 

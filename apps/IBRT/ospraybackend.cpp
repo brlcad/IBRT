@@ -241,6 +241,11 @@ void OsprayBackend::resetAccumulation()
   enqueueLatestRenderRequest("resetAccumulation");
 }
 
+void OsprayBackend::cancelRender()
+{
+  cancelInFlightFrame("cancelRender");
+}
+
 const uint32_t *OsprayBackend::pixels() const
 {
   return displayPixels_.empty() ? nullptr : displayPixels_.data();
