@@ -168,6 +168,15 @@ static inline uint32_t fallbackRegionColor()
   return packRegionColor(0.8f, 0.8f, 0.8f, 1.0f);
 }
 
+static inline void setHitRegionColor(RTCHit &hit, uint32_t packedColor)
+{
+  // Keep Embree/OSPRay's primitive identity sane. This geometry exposes one
+  // user primitive, so BRL-CAD region color rides through u/v instead.
+  hit.primID = 0;
+  hit.u = static_cast<float>(packedColor & 0xffffu);
+  hit.v = static_cast<float>((packedColor >> 16) & 0xffffu);
+}
+
 // ---------------------------------------------------------------------------
 // Embree ray-packet helpers
 // ---------------------------------------------------------------------------
@@ -254,13 +263,14 @@ static int hitCallback(application *ap, partition *PartHeadp, seg * /*segs*/)
     hit.Ng_z = inormal[2];
     hit.geomID = static_cast<unsigned int>(ap->a_user);
     const region *region = pp->pt_regionp;
-    hit.primID = fallbackRegionColor();
+    uint32_t regionColor = fallbackRegionColor();
     if (region && region->reg_mater.ma_color_valid) {
-      hit.primID = packRegionColor(region->reg_mater.ma_color[0],
+      regionColor = packRegionColor(region->reg_mater.ma_color[0],
           region->reg_mater.ma_color[1],
           region->reg_mater.ma_color[2],
           1.0f);
     }
+    setHitRegionColor(hit, regionColor);
     return 1;
   }
 

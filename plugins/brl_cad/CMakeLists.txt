@@ -61,9 +61,20 @@ target_link_libraries(ospray_module_brl_cad PRIVATE
 )
 
 if(APPLE)
-  set(_ibrt_plugin_rpath "@loader_path;${IBRT_BEXT_LIBRARY_DIR};${IBRT_BRLCAD_LIBRARY_DIR}")
+  set(_ibrt_plugin_rpath
+    "@loader_path"
+    ${IBRT_EXTERNAL_RUNTIME_LIBRARY_DIRS}
+    "${IBRT_BEXT_LIBRARY_DIR}"
+    "${IBRT_BRLCAD_LIBRARY_DIR}")
 elseif(UNIX)
-  set(_ibrt_plugin_rpath "\$ORIGIN;${IBRT_BEXT_LIBRARY_DIR};${IBRT_BRLCAD_LIBRARY_DIR}")
+  set(_ibrt_plugin_rpath
+    "\$ORIGIN"
+    ${IBRT_EXTERNAL_RUNTIME_LIBRARY_DIRS}
+    "${IBRT_BEXT_LIBRARY_DIR}"
+    "${IBRT_BRLCAD_LIBRARY_DIR}")
+endif()
+if(UNIX)
+  list(REMOVE_DUPLICATES _ibrt_plugin_rpath)
 endif()
 
 set_target_properties(ospray_module_brl_cad PROPERTIES

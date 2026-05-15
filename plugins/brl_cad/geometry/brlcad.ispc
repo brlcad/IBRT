@@ -8,8 +8,11 @@
 
 OSPRAY_BEGIN_ISPC_NAMESPACE
 
-static inline varying vec4f unpackRegionColor(varying uint32 packed)
+static inline varying vec4f unpackRegionColor(
+    varying float encodedLow, varying float encodedHigh)
 {
+  varying uint32 packed =
+      ((uint32)encodedLow) | (((uint32)encodedHigh) << 16);
   const uniform float scale = 1.0f / 255.0f;
   return make_vec4f((float)((packed >> 0) & 0xffu) * scale,
       (float)((packed >> 8) & 0xffu) * scale,
@@ -28,7 +31,7 @@ SYCL_EXTERNAL void BRLCAD_postIntersect(const Geometry *uniform _self,
   const BRLCAD_sh *uniform self = (const BRLCAD_sh *uniform)_self;
   dg.Ng = dg.Ns = ray.Ng;
   if ((flags & DG_COLOR) && self->colorEnabled != 0) {
-    dg.color = unpackRegionColor(ray.primID);
+    dg.color = unpackRegionColor(ray.u, ray.v);
   }
 }
 
