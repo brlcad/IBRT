@@ -56,7 +56,13 @@ elseif(UNIX)
 endif()
 
 if(UNIX)
-  set(_ibrt_runtime_rpath "${_ibrt_origin};${IBRT_BEXT_LIBRARY_DIR};${IBRT_BRLCAD_LIBRARY_DIR}")
+  set(_ibrt_runtime_rpath
+    "${_ibrt_origin}"
+    ${IBRT_EXTERNAL_RUNTIME_LIBRARY_DIRS}
+    "${IBRT_BEXT_LIBRARY_DIR}"
+    "${IBRT_BRLCAD_LIBRARY_DIR}")
+  list(REMOVE_DUPLICATES _ibrt_runtime_rpath)
+
   if(APPLE)
     set(_ibrt_runtime_patterns
       "${IBRT_BEXT_LIBRARY_DIR}/libospray.dylib"
@@ -64,7 +70,6 @@ if(UNIX)
       "${IBRT_BEXT_LIBRARY_DIR}/libospray_module_cpu*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/librkcommon*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/libembree*.dylib"
-      "${IBRT_BEXT_LIBRARY_DIR}/libtbb*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/libispcrt*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/libopenvkl*.dylib")
   else()
@@ -108,12 +113,33 @@ endfunction()
 
 function(ibrt_deploy_brl_cad_module target)
   if(TARGET ospray_module_brl_cad)
-    add_dependencies(${target} ospray_module_brl_cad)
-    add_custom_command(TARGET ${target} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:ospray_module_brl_cad>"
-        "$<TARGET_FILE_DIR:${target}>/$<TARGET_FILE_NAME:ospray_module_brl_cad>"
-      COMMENT "Deploying BRL-CAD OSPRay module for ${target}...")
+    set(_deploy_target IBRT_deploy_brl_cad_module_runtime)
+    if(NOT TARGET ${_deploy_target})
+      if(UNIX)
+        add_custom_target(${_deploy_target}
+          COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>"
+          COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:ospray_module_brl_cad>"
+            "$<TARGET_FILE_DIR:${target}>/$<TARGET_FILE_NAME:ospray_module_brl_cad>"
+          COMMAND ln -sfn
+            "$<TARGET_FILE_NAME:ospray_module_brl_cad>"
+            "$<TARGET_FILE_DIR:${target}>/$<TARGET_SONAME_FILE_NAME:ospray_module_brl_cad>"
+          COMMAND ln -sfn
+            "$<TARGET_SONAME_FILE_NAME:ospray_module_brl_cad>"
+            "$<TARGET_FILE_DIR:${target}>/$<TARGET_LINKER_FILE_NAME:ospray_module_brl_cad>"
+          DEPENDS ospray_module_brl_cad
+          COMMENT "Deploying BRL-CAD OSPRay module runtime...")
+      else()
+        add_custom_target(${_deploy_target}
+          COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>"
+          COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:ospray_module_brl_cad>"
+            "$<TARGET_FILE_DIR:${target}>/$<TARGET_FILE_NAME:ospray_module_brl_cad>"
+          DEPENDS ospray_module_brl_cad
+          COMMENT "Deploying BRL-CAD OSPRay module runtime...")
+      endif()
+    endif()
+    add_dependencies(${target} ${_deploy_target})
   endif()
 endfunction()
 
@@ -166,12 +192,31 @@ function(ibrt_deploy_runtime_bundle target)
   elseif(UNIX)
     foreach(_lib IN LISTS _ibrt_local_ospray_runtime_libs)
       get_filename_component(_lib_name "${_lib}" NAME)
-      add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${_lib}"
-          "$<TARGET_FILE_DIR:${target}>/${_lib_name}"
-        COMMENT "Copying local OSPRay runtime library ${_lib_name} for ${target}...")
+      if(IS_SYMLINK "${_lib}")
+        file(READ_SYMLINK "${_lib}" _lib_link_target)
+        add_custom_command(TARGET ${target} POST_BUILD
+          COMMAND ${CMAKE_COMMAND} -E rm -f
+            "$<TARGET_FILE_DIR:${target}>/${_lib_name}"
+          COMMAND ${CMAKE_COMMAND} -E create_symlink
+            "${_lib_link_target}"
+            "$<TARGET_FILE_DIR:${target}>/${_lib_name}"
+          COMMENT "Creating local OSPRay runtime symlink ${_lib_name} for ${target}...")
+      else()
+        add_custom_command(TARGET ${target} POST_BUILD
+          COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_lib}"
+            "$<TARGET_FILE_DIR:${target}>/${_lib_name}"
+          COMMENT "Copying local OSPRay runtime library ${_lib_name} for ${target}...")
+      endif()
     endforeach()
+
+    if(APPLE)
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+          -DIBRT_RUNTIME_DIR="$<TARGET_FILE_DIR:${target}>"
+          -P "${PROJECT_SOURCE_DIR}/cmake/IBRTRemoveAppleTbbRuntime.cmake"
+        COMMENT "Removing app-local TBB dylibs so OSPRay and IBRT share one TBB runtime...")
+    endif()
   endif()
 endfunction()
 
