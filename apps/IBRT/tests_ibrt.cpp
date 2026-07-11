@@ -736,7 +736,7 @@ void IbrtTests::integrationBackendHeadlessMossRenderWritesReferenceImages()
   const RendererCase renderers[] = {
       {"ao", 64, 64, 300, false},
       {"scivis", 64, 64, 300, true},
-      {"pathtracer", 2, 2, 300, true},
+      {"pathtracer", 64, 64, 300, true},
   };
 
   QStringList failures;
