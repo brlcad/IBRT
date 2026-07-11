@@ -406,7 +406,7 @@ extern "C" void brlcadIntersectN_C(void *self,
 // ---------------------------------------------------------------------------
 
 BRLCAD::BRLCAD(api::ISPCDevice &device)
-    : AddStructShared(device.getIspcrtContext(), device, FFG_BOX)
+    : AddStructShared(device.getDRTDevice(), device, FFG_BOX)
 {
   instanceId.store(g_nextBrlcadInstanceId.fetch_add(1), std::memory_order_relaxed);
 #ifndef OSPRAY_TARGET_SYCL

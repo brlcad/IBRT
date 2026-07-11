@@ -62,6 +62,16 @@ macro(ibrt_configure_dependencies)
 
   include("${ospray_DIR}/osprayUse.cmake")
 
+  # Out-of-tree ISPC callbacks must use the same SIMD ABI as OSPRay. The
+  # installed ispcrt helper does not populate its ARM target list itself.
+  if(NOT OSPRAY_ISPC_TARGET_LIST)
+    message(FATAL_ERROR
+      "The OSPRay package did not report OSPRAY_ISPC_TARGET_LIST; "
+      "IBRT cannot safely compile external OSPRay ISPC modules.")
+  endif()
+  set(ISPC_TARGET_CPU "${OSPRAY_ISPC_TARGET_LIST}")
+  message(STATUS "Building IBRT OSPRay plugins for ISPC targets: ${ISPC_TARGET_CPU}")
+
   if(OSPRAY_ENABLE_VOLUMES AND TARGET openvkl::openvkl AND NOT OPENVKL_INCLUDE_DIRS)
     get_target_property(OPENVKL_INCLUDE_DIRS openvkl::openvkl INTERFACE_INCLUDE_DIRECTORIES)
   endif()
