@@ -165,6 +165,12 @@ add_executable(IBRTTests
     worker_ipc.h
 )
 
+add_executable(IBRTReferenceRender
+    reference_render.cpp
+    ospraybackend.cpp
+    ospraybackend.h
+)
+
 set_target_properties(QtOsprayViewer PROPERTIES
     OUTPUT_NAME "IBRT"
 )
@@ -211,6 +217,15 @@ target_include_directories(IBRTTests PRIVATE
     $<$<BOOL:${WIN32}>:${TBB_ROOT}/include>
 )
 
+target_include_directories(IBRTReferenceRender PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${OSPRAY_PREFIX}/include"
+    "${RKCOMMON_PREFIX}/include"
+    "${BRLCAD_INCLUDE_DIR}"
+    "${BRLCAD_INCLUDE_DIR}/brlcad"
+    "${BRLCAD_INCLUDE_DIR}/OpenNURBS"
+)
+
 target_compile_definitions(QtOsprayViewer PRIVATE
     BRLCAD_INSTALL_PREFIX="${BRLCAD_PREFIX}"
 )
@@ -252,6 +267,14 @@ target_link_libraries(IBRTTests PRIVATE
     $<$<BOOL:${WIN32}>:TBB::tbb>
 )
 
+target_link_libraries(IBRTReferenceRender PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    ospray::ospray
+    ${BRLCAD_RT_LIBRARY}
+    ${BRLCAD_BU_LIBRARY}
+)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set_target_properties(QtOsprayViewer PROPERTIES
         INSTALL_RPATH "${OSPRAY_PREFIX}/lib;${RKCOMMON_PREFIX}/lib;${BRLCAD_PREFIX}/lib"
@@ -266,6 +289,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         )
     endif()
     set_target_properties(IBRTTests PROPERTIES
+        INSTALL_RPATH "${OSPRAY_PREFIX}/lib;${RKCOMMON_PREFIX}/lib;${BRLCAD_PREFIX}/lib"
+        BUILD_RPATH   "${OSPRAY_PREFIX}/lib;${RKCOMMON_PREFIX}/lib;${BRLCAD_PREFIX}/lib"
+        INSTALL_RPATH_USE_LINK_PATH TRUE
+    )
+    set_target_properties(IBRTReferenceRender PROPERTIES
         INSTALL_RPATH "${OSPRAY_PREFIX}/lib;${RKCOMMON_PREFIX}/lib;${BRLCAD_PREFIX}/lib"
         BUILD_RPATH   "${OSPRAY_PREFIX}/lib;${RKCOMMON_PREFIX}/lib;${BRLCAD_PREFIX}/lib"
         INSTALL_RPATH_USE_LINK_PATH TRUE

@@ -78,7 +78,7 @@ option(OSPRAY_ENABLE_VOLUMES "Enable volume rendering using OpenVKL." OFF)
 ###########################################################
 
 # rkcommon
-find_package(rkcommon ${RKCOMMON_VERSION_REQUIRED} EXACT REQUIRED)
+find_package(rkcommon ${RKCOMMON_VERSION_REQUIRED} REQUIRED)
 get_target_property(RKCOMMON_INCLUDE_DIRS rkcommon::rkcommon
   INTERFACE_INCLUDE_DIRECTORIES)
 

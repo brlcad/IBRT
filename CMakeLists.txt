@@ -56,7 +56,15 @@ endif()
 add_subdirectory(ospray)
 
 ## Modules ##
-add_subdirectory(brl_cad_standalone)
+add_subdirectory(modules/cpu)
+set(OSPRAY_CPU_MODULE_INCLUDE_DIRS
+  ${PROJECT_SOURCE_DIR}/modules/cpu
+  ${PROJECT_SOURCE_DIR}/ospray
+  ${PROJECT_SOURCE_DIR}
+  ${PROJECT_BINARY_DIR}
+  ${EMBREE_INCLUDE_DIRS}
+)
+add_subdirectory(modules/pluggableGeometryExample)
 
 ## OSPRay sample apps ##
 add_subdirectory(apps)

@@ -5,6 +5,7 @@
 
 #include "Geometry.ih"
 #include "GeometryDispatch.ih"
+#include "common/Data.ih"
 #include "common/FeatureFlagsEnum.h"
 #include "render/Renderer.ih"
 #include "rkcommon/math/AffineSpace.ih"

@@ -27,6 +27,7 @@
 #        int16_t versionMinor, int16_t versionPatch)
 #
 add_library(ospray_module_brl_cad SHARED)
+target_compile_features(ospray_module_brl_cad PRIVATE cxx_std_14)
 
 target_compile_definitions(ospray_module_brl_cad PRIVATE OBJECTFACTORY_IMPORT)
 
@@ -70,7 +71,11 @@ if (EXISTS "${BRLCAD_INCLUDE_DIR}/OpenNURBS/opennurbs.h")
   list(APPEND BRLCAD_INCLUDE_DIRS "${BRLCAD_INCLUDE_DIR}/OpenNURBS")
 endif()
 
-target_include_directories(ospray_module_brl_cad PRIVATE
+target_include_directories(ospray_module_brl_cad BEFORE PRIVATE
+    "${PROJECT_BINARY_DIR}"
+    "${PROJECT_SOURCE_DIR}/ospray/include"
+    ${RKCOMMON_INCLUDE_DIRS}
+    ${EMBREE_INCLUDE_DIRS}
     ${BRLCAD_INCLUDE_DIRS}
     "${CMAKE_CURRENT_SOURCE_DIR}/geometry"
 )
