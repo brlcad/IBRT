@@ -274,6 +274,32 @@ if(TARGET IBRTRenderWorker)
     BUNDLE DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 
+add_executable(IBRTReferenceRender
+  ${_ibrt_render_core_sources}
+  reference_render.cpp
+)
+target_link_libraries(IBRTReferenceRender PRIVATE
+  Qt6::Core
+  Qt6::Gui
+)
+ibrt_configure_target(IBRTReferenceRender)
+ibrt_deploy_runtime_bundle(IBRTReferenceRender)
+ibrt_deploy_brl_cad_module(IBRTReferenceRender)
+
+if(IBRT_BUILD_TESTS AND BUILD_TESTING)
+  set(_ibrt_moss_db "${BRLCAD_PREFIX}/share/db/moss.g")
+  if(EXISTS "${_ibrt_moss_db}")
+    add_test(NAME IBRTReferenceMossSciVis
+      COMMAND "${CMAKE_COMMAND}"
+        "-DIBRT_RENDERER=$<TARGET_FILE:IBRTReferenceRender>"
+        "-DIBRT_MOSS_DB=${_ibrt_moss_db}"
+        "-DIBRT_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/test-artifacts/moss-reference.png"
+        "-DIBRT_REFERENCE=${PROJECT_SOURCE_DIR}/reference/d6e65f2dfad346ac7ae806a8d9834f20c72ceb02/moss-all_scivis_1200x900.png"
+        -P "${PROJECT_SOURCE_DIR}/cmake/IBRTVerifyReferenceRender.cmake")
+    set_tests_properties(IBRTReferenceMossSciVis PROPERTIES TIMEOUT 300)
+  endif()
+endif()
+
 if(IBRT_BUILD_TESTS AND BUILD_TESTING)
   add_executable(IBRTTests
     ${_ibrt_render_core_sources}
