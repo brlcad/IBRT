@@ -2,6 +2,7 @@
 *#
 *.bak
 *.patch
+!cmake/patches/*.patch
 *.sw?
 *.vim
 .cache/
