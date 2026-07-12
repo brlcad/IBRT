@@ -73,7 +73,8 @@ void RenderWidget::applyViewAction(
   vec3f forward = currentCameraForward();
   vec3f right = orbitRight();
   vec3f upCam = currentCameraUp();
-  const int verticalDelta = -delta.y();
+  // delta is already expressed in interaction coordinates: positive Y is up.
+  const int verticalDelta = delta.y();
 
   if (result.action == Action::Translate) {
     // Free translation pans in camera space; constrained translation moves along
@@ -150,7 +151,8 @@ void RenderWidget::applyViewAction(
     float minDist = std::max(maxExtent * 1e-8f, 1e-8f);
     float maxDist = std::max(maxExtent * 100.0f, 10.0f);
 
-    dist_ *= std::pow(1.05f, amount * 10.0f);
+    // Dragging up moves the view in (smaller distance); dragging down moves out.
+    dist_ *= std::pow(1.05f, -amount * 10.0f);
     dist_ = clampf(dist_, minDist, maxDist);
   }
 
@@ -705,6 +707,22 @@ void RenderWidget::paintGL()
   ImGui::Text("Azimuth/Elevation: %.2f / %.2f deg", azimuthDeg, elevationDeg);
 
   ImGui::Separator();
+  ImGui::Text("Visualization");
+  int visualizationMode = wireframeVisualization_ ? 1 : 0;
+  if (ImGui::RadioButton("Solid", visualizationMode == 0)) {
+    wireframeVisualization_ = false;
+    backend_.setVisualizationMode(OsprayBackend::VisualizationMode::Solid);
+    if (!currentBrlcadPath_.isEmpty())
+      loadBrlcadModel(currentBrlcadPath_, currentBrlcadObject_);
+  }
+  if (ImGui::RadioButton("Wireframe", visualizationMode == 1)) {
+    wireframeVisualization_ = true;
+    backend_.setVisualizationMode(OsprayBackend::VisualizationMode::Wireframe);
+    if (!currentBrlcadPath_.isEmpty())
+      loadBrlcadModel(currentBrlcadPath_, currentBrlcadObject_);
+  }
+
+  ImGui::Separator();
   ImGui::Text("Renderer");
 
   // Keep the UI selection in sync with whichever render path is active.
@@ -1214,13 +1232,15 @@ bool RenderWidget::loadBrlcadModel(const QString &path, const QString &topObject
   }
 
   currentBrlcadObjects_ = availableObjects;
+  const bool requestedWireframe = wireframeVisualization_;
 
   startAsyncLoad(
-      [this, path, resolvedObject, availableObjects]() {
+      [this, path, resolvedObject, availableObjects, requestedWireframe]() {
         if (usingWorkerRenderPath()) {
           // BRL-CAD scene loading can be expensive, so it follows the same async
           // worker flow as OBJ loading when the worker is available.
-          const auto result = renderWorkerClient_->loadBrlcad(path, resolvedObject);
+          const auto result = renderWorkerClient_->loadBrlcad(
+              path, resolvedObject, requestedWireframe);
           QMetaObject::invokeMethod(this,
               [this, result, path, resolvedObject, availableObjects]() {
             sceneLoadInProgress_.store(false);
@@ -1244,8 +1264,11 @@ bool RenderWidget::loadBrlcadModel(const QString &path, const QString &topObject
           return;
         }
 
-        const bool ok =
-            backend_.loadBrlcad(path.toStdString(), resolvedObject.toStdString());
+        backend_.setVisualizationMode(requestedWireframe
+                ? OsprayBackend::VisualizationMode::Wireframe
+                : OsprayBackend::VisualizationMode::Solid);
+        const bool ok = backend_.loadBrlcad(
+            path.toStdString(), resolvedObject.toStdString());
         const QString error =
             ok ? QString() : QString::fromStdString(backend_.lastError());
 
@@ -1370,6 +1393,9 @@ void RenderWidget::rebuildSceneAndResetView()
     }
     backend_.resize(width(), height());
   } else if (decision.action == ibrt::renderworkflow::RebuildAction::ReloadBrlcad) {
+    backend_.setVisualizationMode(wireframeVisualization_
+            ? OsprayBackend::VisualizationMode::Wireframe
+            : OsprayBackend::VisualizationMode::Solid);
     const bool ok = backend_.loadBrlcad(
         currentBrlcadPath_.toStdString(), decision.brlcadObjectName.toStdString());
     if (!ok) {
@@ -1482,9 +1508,10 @@ void RenderWidget::mouseMoveEvent(QMouseEvent *e)
   if (e->buttons() != Qt::NoButton)
     beginInteraction();
 
-  const QPoint d = e->pos() - lastMouse_;
+  const QPoint screenDelta = e->pos() - lastMouse_;
   lastMouse_ = e->pos();
-  const int verticalDelta = -d.y();
+  const QPoint d = InteractionController::controlDelta(screenDelta);
+  const int verticalDelta = d.y();
 
   auto result = InteractionController::classify(e->buttons(), e->modifiers());
 
@@ -1828,7 +1855,8 @@ void RenderWidget::replayWorkerState()
     }
   } else if (plan.sceneType == ibrt::renderreplay::SceneReplayType::Brlcad) {
     const auto result =
-        renderWorkerClient_->loadBrlcad(plan.scenePath, plan.brlcadObjectName);
+        renderWorkerClient_->loadBrlcad(
+            plan.scenePath, plan.brlcadObjectName, wireframeVisualization_);
     if (result.success) {
       sceneBoundsMin_ = result.boundsMin;
       sceneBoundsMax_ = result.boundsMax;

@@ -207,6 +207,7 @@ class RenderWidget : public QOpenGLWidget, protected QOpenGLFunctions
   QStringList currentBrlcadObjects_;
   QString currentModelPath_;
   bool currentSceneIsObj_ = false;
+  bool wireframeVisualization_ = false;
   QString currentRenderer_ = QStringLiteral("scivis");
   RenderWorkerClient::RenderSettingsState workerSettings_;
   bool moveForwardKeyDown_ = false;

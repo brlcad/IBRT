@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <functional>
@@ -21,6 +22,7 @@
 extern "C" {
 #include <brlcad/raytrace.h>
 #include <brlcad/rt/search.h>
+#include <brlcad/bv/vlist.h>
 }
 
 using rkcommon::math::vec3f;
@@ -32,6 +34,17 @@ namespace {
 const vec3f kSunLightDirection(-0.3f, -1.0f, -0.2f);
 const vec3f kFillLightDirection(0.65f, -0.45f, 0.55f);
 const vec3f kRimLightDirection(-0.55f, -0.2f, 0.75f);
+
+// Per-frame diagnostics are useful while tuning the renderer but are far too
+// noisy for normal desktop use. Opt in explicitly when collecting a trace.
+bool verboseRenderLoggingEnabled()
+{
+  static const bool enabled = []() {
+    const char *value = std::getenv("IBRT_VERBOSE_RENDER_LOG");
+    return value && value[0] != '\0' && std::strcmp(value, "0") != 0;
+  }();
+  return enabled;
+}
 
 // Normalizes a lighting direction and falls back to a sensible default for degenerate input.
 vec3f normalizeDirection(const vec3f &v)
@@ -590,6 +603,9 @@ bool OsprayBackend::loadBrlcad(
       return false;
     }
   }
+
+  if (visualizationMode_ == VisualizationMode::Wireframe)
+    return loadBrlcadWireframe(path, topObject);
 
   std::string moduleError;
   if (!ensureBrlcadModuleLoaded(moduleError)) {
@@ -1260,6 +1276,9 @@ void OsprayBackend::logRenderRequest(const char *event,
     const RenderRequest &request,
     const char *reason) const
 {
+  if (!verboseRenderLoggingEnabled())
+    return;
+
   std::fprintf(stderr,
       "IBRT render %s: id=%llu type=%s camera=%llu phase=%s scale=%d%s%s\n",
       event,
@@ -1651,6 +1670,179 @@ std::vector<std::string> OsprayBackend::listBrlcadObjects(
     bu_free(dpv, "db_ls object list");
   rt_free_rti(tmpRtip);
   return names;
+}
+
+void OsprayBackend::setVisualizationMode(VisualizationMode mode)
+{
+  visualizationMode_ = mode;
+}
+
+OsprayBackend::VisualizationMode OsprayBackend::visualizationMode() const
+{
+  return visualizationMode_;
+}
+
+// Builds OSPRay linear curves from the line segments emitted by each
+// primitive's BRL-CAD ft_plot implementation.
+bool OsprayBackend::loadBrlcadWireframe(
+    const std::string &path, const std::string &topObject)
+{
+  rt_i *rtip = rt_dirbuild(path.c_str(), nullptr, 0);
+  if (!rtip || !rtip->rti_dbip) {
+    if (rtip) rt_free_rti(rtip);
+    setError("Unable to open the BRL-CAD database for wireframe plotting.");
+    return false;
+  }
+
+  struct WireframeBatch
+  {
+    vec3f color;
+    std::vector<vec3f> points;
+  };
+  std::vector<WireframeBatch> batches;
+  std::unordered_set<std::string> ancestry;
+  bg_tess_tol ttol{};
+  ttol.magic = BG_TESS_TOL_MAGIC;
+  ttol.rel = 0.01;
+  bn_tol tol = BN_TOL_INIT_TOL;
+  std::function<void(const directory *, const mat_t, db_full_path *)> plotDirectory;
+  std::function<void(const union tree *, const mat_t, db_full_path *)> plotTree;
+
+  plotDirectory = [&](const directory *dp, const mat_t matrix, db_full_path *pathp) {
+    if (!dp || !dp->d_namep || !ancestry.insert(dp->d_namep).second) return;
+    db_add_node_to_full_path(pathp, const_cast<directory *>(dp));
+    rt_db_internal intern;
+    RT_DB_INTERNAL_INIT(&intern);
+    // Combination transforms live on their leaf nodes.  Apply the accumulated
+    // matrix only when importing a primitive, otherwise nested transforms
+    // would be folded into the tree and then applied a second time below.
+    const fastf_t *importMatrix = (dp->d_flags & RT_DIR_COMB) ? nullptr : matrix;
+    if (rt_db_get_internal(&intern, dp, rtip->rti_dbip, importMatrix) < 0) {
+      ancestry.erase(dp->d_namep);
+      DB_FULL_PATH_POP(pathp);
+      return;
+    }
+    if (intern.idb_type == ID_COMBINATION) {
+      const auto *comb = static_cast<const rt_comb_internal *>(intern.idb_ptr);
+      if (comb) plotTree(comb->tree, matrix, pathp);
+    } else if (intern.idb_meth && intern.idb_meth->ft_plot) {
+      WireframeBatch batch;
+      bu_color pathColor = BU_COLOR_INIT_ZERO;
+      fastf_t rgb[3] = {1.0, 0.0, 0.0};
+      db_full_path_color(&pathColor, pathp, rtip->rti_dbip);
+      bu_color_to_rgb_floats(&pathColor, rgb);
+      batch.color = vec3f(float(rgb[0]), float(rgb[1]), float(rgb[2]));
+      bu_list vhead;
+      BU_LIST_INIT(&vhead);
+      if (intern.idb_meth->ft_plot(&vhead, &intern, &ttol, &tol, nullptr) >= 0) {
+        bool havePrevious = false;
+        vec3f previous;
+        bv_vlist *vp;
+        for (BU_LIST_FOR(vp, bv_vlist, &vhead)) {
+          for (size_t i = 0; i < vp->nused; ++i) {
+            const int cmd = vp->cmd[i];
+            const vec3f p(float(vp->pt[i][0]), float(vp->pt[i][1]), float(vp->pt[i][2]));
+            if (cmd == BV_VLIST_LINE_MOVE || cmd == BV_VLIST_POLY_MOVE
+                || cmd == BV_VLIST_TRI_MOVE) {
+              previous = p;
+              havePrevious = true;
+            } else if (havePrevious && (cmd == BV_VLIST_LINE_DRAW
+                           || cmd == BV_VLIST_POLY_DRAW || cmd == BV_VLIST_POLY_END
+                           || cmd == BV_VLIST_TRI_DRAW || cmd == BV_VLIST_TRI_END)) {
+              batch.points.push_back(previous);
+              batch.points.push_back(p);
+              previous = p;
+            }
+          }
+        }
+      }
+      bv_vlist_cleanup(&vhead);
+      if (!batch.points.empty())
+        batches.push_back(std::move(batch));
+    }
+    rt_db_free_internal(&intern);
+    ancestry.erase(dp->d_namep);
+    DB_FULL_PATH_POP(pathp);
+  };
+  plotTree = [&](const union tree *tree, const mat_t parent, db_full_path *pathp) {
+    if (!tree) return;
+    if (tree->tr_op == OP_DB_LEAF) {
+      mat_t combined;
+      if (tree->tr_l.tl_mat) bn_mat_mul(combined, parent, tree->tr_l.tl_mat);
+      else MAT_COPY(combined, parent);
+      plotDirectory(
+          db_lookup(rtip->rti_dbip, tree->tr_l.tl_name, LOOKUP_QUIET), combined, pathp);
+      return;
+    }
+    plotTree(tree->tr_b.tb_left, parent, pathp);
+    if (tree->tr_op == OP_UNION || tree->tr_op == OP_INTERSECT
+        || tree->tr_op == OP_SUBTRACT || tree->tr_op == OP_XOR)
+      plotTree(tree->tr_b.tb_right, parent, pathp);
+  };
+
+  mat_t identity;
+  MAT_IDN(identity);
+  db_full_path pathState = DB_FULL_PATH_INIT_ZERO;
+  if (!topObject.empty() && topObject != "all") {
+    plotDirectory(
+        db_lookup(rtip->rti_dbip, topObject.c_str(), LOOKUP_QUIET), identity, &pathState);
+  } else {
+    directory **tops = nullptr;
+    const size_t count = db_ls(rtip->rti_dbip, DB_LS_TOPS, nullptr, &tops);
+    for (size_t i = 0; i < count; ++i) plotDirectory(tops[i], identity, &pathState);
+    if (tops) bu_free(tops, "wireframe top objects");
+  }
+  db_free_full_path(&pathState);
+  rt_free_rti(rtip);
+  if (batches.empty()) {
+    setError("BRL-CAD ft_plot produced no wireframe segments.");
+    return false;
+  }
+
+  boundsMin_ = boundsMax_ = batches.front().points.front();
+  for (const WireframeBatch &batch : batches) for (const vec3f &p : batch.points) {
+    boundsMin_.x = std::min(boundsMin_.x, p.x); boundsMin_.y = std::min(boundsMin_.y, p.y); boundsMin_.z = std::min(boundsMin_.z, p.z);
+    boundsMax_.x = std::max(boundsMax_.x, p.x); boundsMax_.y = std::max(boundsMax_.y, p.y); boundsMax_.z = std::max(boundsMax_.z, p.z);
+  }
+  const float radius = std::max(getBoundsMaxExtent() * 0.00075f, 1e-5f);
+  std::vector<ospray::cpp::GeometricModel> models;
+  models.reserve(batches.size());
+  for (const WireframeBatch &batch : batches) {
+    std::vector<vec4f> vertices;
+    std::vector<uint32_t> indices;
+    vertices.reserve(batch.points.size());
+    for (size_t i = 0; i < batch.points.size(); i += 2) {
+      indices.push_back(uint32_t(i));
+      vertices.emplace_back(batch.points[i].x, batch.points[i].y, batch.points[i].z, radius);
+      vertices.emplace_back(batch.points[i + 1].x, batch.points[i + 1].y,
+          batch.points[i + 1].z, radius);
+    }
+    ospray::cpp::Geometry curves("curve");
+    curves.setParam("vertex.position_radius", ospray::cpp::CopiedData(vertices));
+    curves.setParam("index", ospray::cpp::CopiedData(indices));
+    curves.setParam("type", OSP_ROUND);
+    curves.setParam("basis", OSP_LINEAR);
+    curves.commit();
+    ospray::cpp::GeometricModel model(curves);
+    ospray::cpp::Material material("obj");
+    material.setParam("kd", batch.color);
+    material.commit();
+    model.setParam("material", material);
+    model.commit();
+    models.push_back(model);
+  }
+  ospray::cpp::Group group;
+  group.setParam("geometry", ospray::cpp::CopiedData(models));
+  group.commit();
+  ospray::cpp::Instance instance(group);
+  instance.commit();
+  sceneInstances_ = {instance};
+  world_ = ospray::cpp::World();
+  applyWorldInstances();
+  applyDefaultLights();
+  world_.commit();
+  resetAccumulation();
+  return true;
 }
 
 // Builds a BRL-CAD object hierarchy suitable for UI browsing.

@@ -196,11 +196,19 @@ int main(int argc, char *argv[])
 
     case ibrt::ipc::MessageType::LoadBrlcad: {
       const size_t sep = message.payload.find('\n');
+      const size_t modeSep = sep == std::string::npos
+          ? std::string::npos : message.payload.find('\n', sep + 1);
       const std::string path = sep == std::string::npos
           ? message.payload
           : message.payload.substr(0, sep);
-      const std::string object =
-          sep == std::string::npos ? std::string() : message.payload.substr(sep + 1);
+      const std::string object = sep == std::string::npos ? std::string()
+          : message.payload.substr(sep + 1,
+              modeSep == std::string::npos ? std::string::npos : modeSep - sep - 1);
+      const std::string mode = modeSep == std::string::npos
+          ? "solid" : message.payload.substr(modeSep + 1);
+      backend.setVisualizationMode(mode == "wireframe"
+              ? OsprayBackend::VisualizationMode::Wireframe
+              : OsprayBackend::VisualizationMode::Solid);
       const bool ok = backend.loadBrlcad(path, object);
       ibrt::ipc::writeMessage(socketDescriptor,
           {ibrt::ipc::MessageType::LoadResult,
@@ -483,11 +491,19 @@ int main(int argc, char *argv[])
 
     case ibrt::ipc::MessageType::LoadBrlcad: {
       const size_t sep = message.payload.find('\n');
+      const size_t modeSep = sep == std::string::npos
+          ? std::string::npos : message.payload.find('\n', sep + 1);
       const std::string path = sep == std::string::npos
           ? message.payload
           : message.payload.substr(0, sep);
-      const std::string object =
-          sep == std::string::npos ? std::string() : message.payload.substr(sep + 1);
+      const std::string object = sep == std::string::npos ? std::string()
+          : message.payload.substr(sep + 1,
+              modeSep == std::string::npos ? std::string::npos : modeSep - sep - 1);
+      const std::string mode = modeSep == std::string::npos
+          ? "solid" : message.payload.substr(modeSep + 1);
+      backend.setVisualizationMode(mode == "wireframe"
+              ? OsprayBackend::VisualizationMode::Wireframe
+              : OsprayBackend::VisualizationMode::Solid);
       const bool ok = backend.loadBrlcad(path, object);
       ibrt::ipc::writeMessage(pipe,
           {ibrt::ipc::MessageType::LoadResult,

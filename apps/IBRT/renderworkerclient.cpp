@@ -262,18 +262,19 @@ RenderWorkerClient::SceneLoadResult RenderWorkerClient::loadObj(const QString &p
 }
 
 RenderWorkerClient::SceneLoadResult RenderWorkerClient::loadBrlcad(
-    const QString &path, const QString &objectName)
+    const QString &path, const QString &objectName, bool wireframe)
 {
   SceneLoadResult result;
 #if !defined(_WIN32) && !defined(__linux__) && !defined(__APPLE__)
   Q_UNUSED(path);
   Q_UNUSED(objectName);
+  Q_UNUSED(wireframe);
   result.errorMessage = QStringLiteral("Render worker is currently implemented for Windows and Linux only.");
   lastError_ = result.errorMessage;
   return result;
 #else
-  const std::string requestPayload =
-      path.toStdString() + '\n' + objectName.toStdString();
+  const std::string requestPayload = path.toStdString() + '\n'
+      + objectName.toStdString() + '\n' + (wireframe ? "wireframe" : "solid");
   std::string payload;
   if (!sendRequestBytes(
           static_cast<uint32_t>(ibrt::ipc::MessageType::LoadBrlcad), requestPayload, &payload)) {

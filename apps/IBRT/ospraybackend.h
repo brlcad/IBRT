@@ -38,6 +38,7 @@ class OsprayBackend
     Balanced,
     Quality
   };
+  enum class VisualizationMode { Solid, Wireframe };
 
   OsprayBackend() = default;
 
@@ -57,6 +58,8 @@ class OsprayBackend
 
   bool loadObj(const std::string &path);
   bool loadBrlcad(const std::string &path, const std::string &topObject = "");
+  void setVisualizationMode(VisualizationMode mode);
+  VisualizationMode visualizationMode() const;
   std::vector<std::string> listBrlcadObjects(const std::string &path) const;
   std::vector<BrlcadNode> getBrlcadHierarchy(const std::string &path) const;
   std::vector<BrlcadNode> listBrlcadHierarchy(const std::string &path) const;
@@ -187,6 +190,7 @@ class OsprayBackend
   void applyRendererDefaults();
   void applyDefaultMaterial(ospray::cpp::GeometricModel &model);
   void applyWorldInstances();
+  bool loadBrlcadWireframe(const std::string &path, const std::string &topObject);
 
   int fbW_ = 1;
   int fbH_ = 1;
@@ -207,6 +211,7 @@ class OsprayBackend
   std::string lastError_;
   float lastFrameTimeMs_ = 0.0f;
   std::string currentRenderer_ = "scivis";
+  VisualizationMode visualizationMode_ = VisualizationMode::Solid;
   uint64_t accumulatedFrames_ = 0;
   static constexpr int kMaxSafeAoSamples = 32;
   static constexpr int kMaxSafePixelSamples = 64;

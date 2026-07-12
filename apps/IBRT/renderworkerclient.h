@@ -77,7 +77,8 @@ class RenderWorkerClient : public QObject
   QString lastError() const;
   QStringList listBrlcadObjects(const QString &path);
   SceneLoadResult loadObj(const QString &path);
-  SceneLoadResult loadBrlcad(const QString &path, const QString &objectName);
+  SceneLoadResult loadBrlcad(
+      const QString &path, const QString &objectName, bool wireframe = false);
   bool resize(int width, int height);
   bool setCamera(const rkcommon::math::vec3f &eye,
       const rkcommon::math::vec3f &center,
