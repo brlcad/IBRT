@@ -269,6 +269,10 @@ int main(int argc, char *argv[])
     // Qt owns the app lifetime from here; MainWindow wires the viewer widget to
     // the worker process and initial demo loading.
     QApplication a(argc, argv);
+    QApplication::setApplicationName("IBRT");
+    QApplication::setApplicationDisplayName("Interactive BRL-CAD Ray Tracer");
+    QApplication::setApplicationVersion(IBRT_VERSION);
+    QApplication::setOrganizationName("BRL-CAD");
     MainWindow w;
     w.show();
     rc = a.exec();
