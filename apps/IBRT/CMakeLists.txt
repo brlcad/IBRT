@@ -94,6 +94,8 @@ function(ibrt_configure_target target)
     ospray::ospray
     ${IBRT_BRLCAD_RT_LIBRARY}
     ${IBRT_BRLCAD_BU_LIBRARY}
+    ${IBRT_BRLCAD_BN_LIBRARY}
+    ${IBRT_BRLCAD_BV_LIBRARY}
     $<$<BOOL:${WIN32}>:TBB::tbb>
   )
 
@@ -236,6 +238,7 @@ if(IBRT_BUILD_VIEWER)
     "${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends"
   )
   target_compile_definitions(IBRT PRIVATE BRLCAD_INSTALL_PREFIX="${BRLCAD_PREFIX}")
+  target_compile_definitions(IBRT PRIVATE IBRT_VERSION="${PROJECT_VERSION}")
   target_link_libraries(IBRT PRIVATE
     Qt6::Widgets
     Qt6::OpenGLWidgets
