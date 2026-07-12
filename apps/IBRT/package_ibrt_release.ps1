@@ -49,6 +49,7 @@ if (-not (Test-Path $cachePath)) {
 
 $cacheLines = Get-Content $cachePath
 $brlcadPrefix = Get-CacheValue $cacheLines "BRLCAD_PREFIX"
+$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 
 if (-not $SkipBuild) {
     & cmake --build $BuildDir --config Release --target ospray_module_brl_cad IBRT IBRTRenderWorker
@@ -69,7 +70,11 @@ if (Test-Path $outputRoot) {
 
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
-Copy-Item -LiteralPath (Join-Path $viewerDir "*") -Destination $outputRoot -Recurse -Force
+Copy-Item -Path (Join-Path $viewerDir "*") -Destination $outputRoot -Recurse -Force
+
+foreach ($docName in @("README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md")) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot $docName) -Destination $outputRoot -Force
+}
 
 $dbDir = Join-Path $brlcadPrefix "share\db"
 foreach ($demoName in @("moss.g", "havoc.g", "axis.g")) {
