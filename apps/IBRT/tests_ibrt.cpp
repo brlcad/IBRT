@@ -1230,6 +1230,11 @@ void IbrtTests::unitInteractionControllerClassifiesDocumentedChords()
   using Action = InteractionController::Action;
   using Axis = InteractionController::AxisConstraint;
 
+  // Qt reports increasing screen Y for downward motion. Interaction deltas
+  // deliberately use the conventional positive-up coordinate system.
+  QCOMPARE(InteractionController::controlDelta(QPoint(7, -5)), QPoint(7, 5));
+  QCOMPARE(InteractionController::controlDelta(QPoint(-3, 11)), QPoint(-3, -11));
+
   {
     const auto result =
         InteractionController::classify(Qt::NoButton, Qt::NoModifier);
