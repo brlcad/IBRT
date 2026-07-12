@@ -42,7 +42,7 @@ jobs:
         run: |
           git clone --filter=blob:none https://github.com/BRL-CAD/bext.git ../bext
           git -C ../bext checkout "$BEXT_REVISION"
-          git -C ../bext apply "$GITHUB_WORKSPACE/cmake/patches/bext-ospray-boost.patch"
+          git -C ../bext apply --unidiff-zero "$GITHUB_WORKSPACE/cmake/patches/bext-ospray-boost.patch"
           git clone --filter=blob:none https://github.com/BRL-CAD/brlcad.git ../brlcad
           git -C ../brlcad checkout "$BRLCAD_REVISION"
 

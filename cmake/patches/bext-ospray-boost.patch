@@ -1,13 +1,9 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index db03850..5bfce67 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -502,7 +502,7 @@ add_project(icu GROUPS "APPLESEED")
- # Boost - C++ libraries
- # https://www.boost.org
- # https://github.com/boostorg/boost
+@@ -496 +496 @@
+-add_project(icu GROUPS "APPLESEED")
++add_project(icu GROUPS "APPLESEED;OSPRAY")
+@@ -505 +505 @@
 -add_project(boost GROUPS "APPLESEED")
 +add_project(boost GROUPS "APPLESEED;OSPRAY")
- 
- # netpbm library - support for pnm,ppm,pbm, etc. image files
- # http://netpbm.sourceforge.net/
