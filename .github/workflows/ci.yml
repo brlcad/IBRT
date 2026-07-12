@@ -30,7 +30,14 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build xvfb libgl1-mesa-dev
+          sudo apt-get install -y \
+            bison \
+            build-essential \
+            flex \
+            gperf \
+            libgl1-mesa-dev \
+            ninja-build \
+            xvfb
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -51,6 +58,7 @@ jobs:
           cmake -S ../bext -B ../bext-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DENABLE_ALL=ON \
+            -DENABLE_BISON=OFF \
             -DUSE_APPLESEED=OFF \
             -DUSE_BRLCAD=OFF \
             -DUSE_BRLCAD_EXTRA=OFF \
