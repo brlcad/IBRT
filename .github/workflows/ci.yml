@@ -2,115 +2,84 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BEXT_REVISION: 7ebceffe7991211ce5592bd65838b10d18ca0e1b
+  BRLCAD_REVISION: c363f3206ea04f209a7a3e1c7e4c27d5042083ad
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+  linux:
+    name: Linux build and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
 
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - uses: actions/checkout@v4
 
-    - name: Install Qt
-      uses: jurplel/install-qt-action@v3
-      with:
-        version: '6.5.3'
-        modules: 'qtbase qtdeclarative'
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build xvfb libgl1-mesa-dev
 
-    - name: Install ISPC
-      uses: pypa/gh-action-setup-ispc@v1
-      with:
-        version: '1.24.0'
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.5.3'
+          modules: 'qtbase'
+          cache: true
 
-    - name: Linux system dependencies
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libgl1-mesa-dev libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 libglib2.0-0
+      - name: Check out pinned dependencies
+        run: |
+          git clone --filter=blob:none https://github.com/BRL-CAD/bext.git ../bext
+          git -C ../bext checkout "$BEXT_REVISION"
+          git clone --filter=blob:none https://github.com/BRL-CAD/brlcad.git ../brlcad
+          git -C ../brlcad checkout "$BRLCAD_REVISION"
 
-    - name: Cache OSPRay Superbuild
-      id: cache-ospray
-      uses: actions/cache@v3
-      with:
-        path: ${{ github.workspace }}/ospray-install
-        key: ${{ runner.os }}-ospray-superbuild-v1
+      - name: Build the OSPRay dependency tree
+        run: |
+          cmake -S ../bext -B ../bext-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_ALL=ON \
+            -DUSE_APPLESEED=OFF \
+            -DUSE_BRLCAD=OFF \
+            -DUSE_BRLCAD_EXTRA=OFF \
+            -DUSE_GDAL=OFF \
+            -DUSE_OSPRAY=ON \
+            -DUSE_QT=OFF \
+            -DUSE_TCL=OFF
+          cmake --build ../bext-build --config Release --parallel 4
 
-    - name: Build OSPRay Superbuild
-      if: steps.cache-ospray.outputs.cache-hit != 'true'
-      shell: bash
-      run: |
-        mkdir -p ospray-build ospray-install
-        cd ospray-build
-        cmake ../scripts/superbuild \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DINSTALL_IN_SEPARATE_DIRECTORIES=ON \
-          -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/ospray-install" \
-          -DBUILD_OSPRAY_APPS=OFF \
-          -DDOWNLOAD_ISPC=OFF
-        cmake --build . --config Release --parallel 4
+      - name: Build and install minimal BRL-CAD
+        run: |
+          cmake -S ../brlcad -B ../brlcad-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/../brlcad-install" \
+            -DBRLCAD_BUNDLED_LIBS=BUNDLED \
+            -DBRLCAD_ENABLE_MINIMAL=ON \
+            -DBRLCAD_ENABLE_STRICT=OFF \
+            -DBRLCAD_ENABLE_COMPILER_WARNINGS=OFF
+          cmake --build ../brlcad-build --config Release --target install --parallel 4
 
-    - name: Cache BRL-CAD
-      id: cache-brlcad
-      uses: actions/cache@v3
-      with:
-        path: ${{ github.workspace }}/brlcad-install
-        key: ${{ runner.os }}-brlcad-v1
+      - name: Configure IBRT
+        run: |
+          cmake -S . -B build/ci -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBEXT_INSTALL_DIR="$GITHUB_WORKSPACE/../bext-build/install" \
+            -DBRLCAD_PREFIX="$GITHUB_WORKSPACE/../brlcad-install"
 
-    - name: Build BRL-CAD
-      if: steps.cache-brlcad.outputs.cache-hit != 'true'
-      shell: bash
-      run: |
-        git clone --depth 1 https://github.com/BRL-CAD/brlcad.git brlcad-src
-        mkdir -p brlcad-build brlcad-install
-        cd brlcad-build
-        cmake ../brlcad-src \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DBRLCAD_ENABLE_STRICT=OFF \
-          -DBRLCAD_ENABLE_COMPILER_WARNINGS=OFF \
-          -DBRLCAD_BUNDLED_LIBS=ON \
-          -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/brlcad-install"
-        cmake --build . --config Release --target install --parallel 4
+      - name: Build IBRT
+        run: cmake --build build/ci --config Release --parallel 4
 
-    - name: Build BRL-CAD OSPRay Module
-      shell: bash
-      run: |
-        mkdir -p build-module
-        cd build-module
-        cmake ../brl_cad_standalone \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DOSPRAY_PREFIX="${{ github.workspace }}/ospray-install/ospray" \
-          -DRKCOMMON_PREFIX="${{ github.workspace }}/ospray-install/rkcommon" \
-          -DEMBREE_PREFIX="${{ github.workspace }}/ospray-install/embree" \
-          -DOPENVKL_PREFIX="${{ github.workspace }}/ospray-install/openvkl" \
-          -DBRLCAD_PREFIX="${{ github.workspace }}/brlcad-install"
-        cmake --build . --config Release
-
-    - name: Build IBRT Qt Viewer
-      shell: bash
-      run: |
-        mkdir -p build-viewer
-        cd build-viewer
-        cmake ../QtOsprayViewer/QtOsprayViewer \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DOSPRAY_PREFIX="${{ github.workspace }}/ospray-install/ospray" \
-          -DRKCOMMON_PREFIX="${{ github.workspace }}/ospray-install/rkcommon" \
-          -DEMBREE_PREFIX="${{ github.workspace }}/ospray-install/embree" \
-          -DOPENVKL_PREFIX="${{ github.workspace }}/ospray-install/openvkl" \
-          -DBRLCAD_PREFIX="${{ github.workspace }}/brlcad-install" \
-          -DTBB_ROOT="${{ github.workspace }}/ospray-install/tbb"
-        cmake --build . --config Release
-
-    - name: Run Tests
-      shell: bash
-      run: |
-        cd build-viewer
-        ctest --output-on-failure -C Release
+      - name: Run tests
+        run: xvfb-run -a ctest --test-dir build/ci --output-on-failure -C Release
