@@ -8,6 +8,7 @@
 .qt/
 .vs/
 .idea/
+.vscode/
 .build/
 .artifacts/
 OBJ/
