@@ -5,7 +5,7 @@
 The repo expects two primary configure-time inputs:
 
 - `BEXT_INSTALL_DIR`
-  The built `bext` install tree, typically `<bext>/.build/install`
+  The built `bext` install tree, typically `<bext>/build/everything/install`
 - `BRLCAD_PREFIX`
   The BRL-CAD install prefix
 
@@ -58,9 +58,12 @@ ctest --test-dir /path/to/IBRT/build/local --output-on-failure
 - `IBRT_ENABLE_RENDER_WORKER=OFF`
   Build only the in-process viewer path
 
+Set `IBRT_VERBOSE_RENDER_LOG=1` at runtime to emit the per-frame scheduling log
+used for renderer performance investigations.
+
 ## Presets
 
-The committed [CMakePresets.json](/Users/morrison/IBRT/CMakePresets.json) uses environment variables:
+The committed [CMakePresets.json](../CMakePresets.json) uses environment variables:
 
 - `BEXT_INSTALL_DIR`
 - `BRLCAD_PREFIX`

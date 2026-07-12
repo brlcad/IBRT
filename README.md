@@ -2,6 +2,9 @@
 
 IBRT is the Interactive BRL-CAD Ray Tracer. This repository now holds our application and our OSPRay plugins, not a vendored OSPRay source tree.
 
+IBRT is currently beta software. Expect incomplete features and report reproducible
+problems through the repository's GitHub issue tracker.
+
 ## What Lives Here
 
 - `apps/IBRT`
@@ -38,7 +41,7 @@ ctest --test-dir build/local --output-on-failure
 
 If Qt is not part of the supplied `bext` install, extend `CMAKE_PREFIX_PATH` when configuring.
 
-More detail lives in [docs/building.md](/Users/morrison/IBRT/docs/building.md).
+More detail lives in [docs/building.md](docs/building.md).
 
 ## Runtime Notes
 
@@ -48,6 +51,7 @@ More detail lives in [docs/building.md](/Users/morrison/IBRT/docs/building.md).
 
 ## Repository Docs
 
-- [Building](/Users/morrison/IBRT/docs/building.md)
-- [Repo Layout](/Users/morrison/IBRT/docs/repo-layout.md)
-- [Performance Notes](/Users/morrison/IBRT/docs/perf/ibrt-moss-performance-plan.md)
+- [Building](docs/building.md)
+- [Repo Layout](docs/repo-layout.md)
+- [Performance Notes](docs/perf/ibrt-moss-performance-plan.md)
+- [Release Checklist](docs/releasing.md)
