@@ -44,3 +44,8 @@ InteractionController::Result InteractionController::classify(
 
   return r;
 }
+
+QPoint InteractionController::controlDelta(const QPoint &screenDelta)
+{
+  return QPoint(screenDelta.x(), -screenDelta.y());
+}
