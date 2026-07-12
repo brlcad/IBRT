@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -33,10 +33,9 @@ jobs:
           sudo apt-get install -y build-essential ninja-build xvfb libgl1-mesa-dev
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v3
+        uses: jurplel/install-qt-action@v4
         with:
           version: '6.5.3'
-          modules: 'qtbase'
           cache: true
 
       - name: Check out pinned dependencies
