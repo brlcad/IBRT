@@ -1,26 +1,18 @@
 CLEANUP
 
-* fix up/down pan/slew controls (they're reversed)
+* investigate multiple plugin reloading during view changes
 
-* fix BGR vs RGB colors
-
-* fix interruption reloading the model (or perhaps losing connection with the renderer
+* investgiate crash on exits
 
 * refactor color into callback function
 
 * clean up the imgui menu with less
-
-* make imgui more narrow
 
 * clean up logging output with less
 
 * start with 32x32 pixels, test higher levels (consider dynamic)
 
 * test upscale interpolation
-
-* fix fps calculation
-
-* fix scivis (no ao, faster)
 
 * fix delayed ao (start before scale=1)
 
@@ -34,6 +26,8 @@ CLEANUP
 
 
 NEW STUFF
+
+* fix halo bgcolor
 
 * tackle docs/perf/ibrt-moss-performance-plan.md
 
@@ -68,3 +62,10 @@ NEW STUFF
 * implement stl (and more) loading
 
 * expand loading to libgcv
+
+* edge rendering, edge + other renders
+
+* rtwizard style rendering
+
+* import metadata for visualization
+
