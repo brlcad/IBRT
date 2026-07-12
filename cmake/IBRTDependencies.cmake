@@ -96,6 +96,11 @@ macro(ibrt_configure_dependencies)
     PATHS "${BRLCAD_PREFIX}/lib" "${BRLCAD_PREFIX}/lib64"
     NO_DEFAULT_PATH
     REQUIRED)
+  find_library(IBRT_BRLCAD_BV_LIBRARY
+    NAMES bv libbv
+    PATHS "${BRLCAD_PREFIX}/lib" "${BRLCAD_PREFIX}/lib64"
+    NO_DEFAULT_PATH
+    REQUIRED)
 
   set(IBRT_BRLCAD_INCLUDE_DIRS "${IBRT_BRLCAD_INCLUDE_DIR}")
   if(EXISTS "${IBRT_BRLCAD_INCLUDE_DIR}/brlcad/common.h")
