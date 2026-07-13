@@ -76,6 +76,8 @@ jobs:
             -DUSE_OSPRAY=ON \
             -DUSE_QT=OFF \
             -DUSE_TCL=OFF
+          git -C ../bext/ospray/ospray apply \
+            "$GITHUB_WORKSPACE/cmake/patches/ospray-rkcommon-version.patch"
           cmake --build ../bext-build --config Release --parallel 4
 
       - name: Build and install minimal BRL-CAD
