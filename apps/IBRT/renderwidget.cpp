@@ -589,7 +589,11 @@ void RenderWidget::paintGL()
   if (!image_.isNull()) {
     // OSPRay's OSP_FB_SRGBA maps to byte-ordered RGBA pixels; only a vertical
     // flip is needed because OSPRay's image origin is the lower-left corner.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
     QImage img = image_.flipped(Qt::Vertical);
+#else
+    QImage img = image_.mirrored(false, true);
+#endif
     p.drawImage(rect(), img);
   }
   drawRotationAxisOverlay(p);
