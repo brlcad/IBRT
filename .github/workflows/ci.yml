@@ -33,9 +33,14 @@ jobs:
           sudo apt-get install -y \
             bison \
             build-essential \
+            clang-18 \
             flex \
+            g++-multilib \
+            gcc-multilib \
             gperf \
+            libc6-dev-i386 \
             libgl1-mesa-dev \
+            llvm-18-dev \
             ninja-build \
             xvfb
 
@@ -55,10 +60,14 @@ jobs:
 
       - name: Build the OSPRay dependency tree
         run: |
+          export PATH="/usr/lib/llvm-18/bin:$PATH"
+          export CMAKE_PREFIX_PATH="/usr/lib/llvm-18:${CMAKE_PREFIX_PATH:-}"
           cmake -S ../bext -B ../bext-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DENABLE_ALL=ON \
             -DENABLE_BISON=OFF \
+            -DENABLE_LLVM=OFF \
+            -DLLVM_DIR=/usr/lib/llvm-18/lib/cmake/llvm \
             -DUSE_APPLESEED=OFF \
             -DUSE_BRLCAD=OFF \
             -DUSE_BRLCAD_EXTRA=OFF \
