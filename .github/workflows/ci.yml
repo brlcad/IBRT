@@ -39,6 +39,7 @@ jobs:
             gcc-multilib \
             gperf \
             libc6-dev-i386 \
+            libclang-18-dev \
             libgl1-mesa-dev \
             llvm-18-dev \
             ninja-build \
