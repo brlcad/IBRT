@@ -2,61 +2,90 @@
   "version": 6,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 20,
+    "minor": 25,
     "patch": 0
   },
   "configurePresets": [
     {
-      "name": "base",
+      "name": "deps-release",
       "hidden": true,
-      "binaryDir": "${sourceDir}/build/${presetName}",
+      "description": "Release BRL-CAD + bext. Used by Release IBRT builds.",
       "cacheVariables": {
-        "BEXT_INSTALL_DIR": "$env{BEXT_INSTALL_DIR}",
-        "BRLCAD_PREFIX": "$env{BRLCAD_PREFIX}"
+        "BRLCAD_EXT_DIR": "C:/devtools/bext/build/everything",
+        "BRLCAD_PREFIX": "C:/devtools/brlcad.main/out/build/x64-Release"
       }
     },
     {
-      "name": "ninja-debug",
-      "displayName": "Ninja Debug",
-      "inherits": "base",
-      "generator": "Ninja",
+      "name": "deps-debug",
+      "hidden": true,
+      "description": "Debug BRL-CAD + bext. You must provision these matching Debug trees.",
+      "cacheVariables": {
+        "BRLCAD_EXT_DIR": "C:/devtools/bext/build/everything-debug",
+        "BRLCAD_PREFIX": "C:/devtools/brlcad.main/out/build/x64-Debug"
+      }
+    },
+    {
+      "name": "everything/Release",
+      "displayName": "everything / Release",
+      "inherits": ["deps-release"],
+      "binaryDir": "${sourceDir}/build/everything/Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "everything/Debug",
+      "displayName": "everything / Debug",
+      "inherits": ["deps-debug"],
+      "binaryDir": "${sourceDir}/build/everything/Debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
-      "name": "ninja-relwithdebinfo",
-      "displayName": "Ninja RelWithDebInfo",
-      "inherits": "base",
-      "generator": "Ninja",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
-      }
+      "name": "everything",
+      "displayName": "everything (defaults to Release)",
+      "inherits": ["everything/Release"]
     }
   ],
   "buildPresets": [
     {
-      "name": "build-debug",
-      "displayName": "Build Debug",
-      "configurePreset": "ninja-debug"
+      "name": "everything/Release",
+      "configurePreset": "everything/Release",
+      "configuration": "Release"
     },
     {
-      "name": "build-relwithdebinfo",
-      "displayName": "Build RelWithDebInfo",
-      "configurePreset": "ninja-relwithdebinfo"
+      "name": "everything/Debug",
+      "configurePreset": "everything/Debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "everything",
+      "configurePreset": "everything",
+      "configuration": "Release"
     }
   ],
   "testPresets": [
     {
-      "name": "test-debug",
-      "configurePreset": "ninja-debug",
+      "name": "everything/Release",
+      "configurePreset": "everything/Release",
+      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       }
     },
     {
-      "name": "test-relwithdebinfo",
-      "configurePreset": "ninja-relwithdebinfo",
+      "name": "everything/Debug",
+      "configurePreset": "everything/Debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "everything",
+      "configurePreset": "everything",
+      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       }
