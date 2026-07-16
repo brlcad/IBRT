@@ -16,7 +16,7 @@ problems through the repository's GitHub issue tracker.
 
 ## Dependency Model
 
-OSPRay, Qt, Embree, rkcommon, ISPCRT, TBB, and related runtime dependencies come from an external `bext` install tree supplied at CMake configure time with `BEXT_INSTALL_DIR`.
+OSPRay, Qt, Embree, rkcommon, ISPCRT, TBB, and related runtime dependencies come from an external `bext` install tree supplied at CMake configure time with `BEXT_INSTALL_DIR`. Alternatively, point `BRLCAD_EXT_DIR` at the bext build directory (the one holding `install/` and `noinstall/`, as BRL-CAD does); the install tree is then `BRLCAD_EXT_DIR/install`.
 
 This repo does not vendor or build OSPRay itself anymore.
 
@@ -40,6 +40,22 @@ ctest --test-dir build/local --output-on-failure
 ```
 
 If Qt is not part of the supplied `bext` install, extend `CMAKE_PREFIX_PATH` when configuring.
+
+### Debug and Release
+
+A Debug or Release IBRT build must use BRL-CAD and bext built in the same
+configuration; on Windows the two cannot be mixed. IBRT uses one configuration
+per build directory, so Debug and Release builds coexist and you switch by
+choosing a preset:
+
+```sh
+cmake --preset everything/Release && cmake --build --preset everything/Release
+cmake --preset everything/Debug   && cmake --build --preset everything/Debug   # needs Debug deps
+```
+
+Each preset builds into `build/everything/<Config>`. `everything` is shorthand
+for `everything/Release`. A configure-time check fails fast with a clear message
+if the dependencies do not match the build type.
 
 More detail lives in [docs/building.md](docs/building.md).
 
