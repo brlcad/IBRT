@@ -13,8 +13,112 @@ function(ibrt_require_directory var description)
   endif()
 endfunction()
 
+# Return whether a Windows binary is a Debug build, by inspecting its import
+# table with dumpbin. Sets <out_var> to TRUE, FALSE, or "UNKNOWN" (dumpbin
+# unavailable or binary unreadable).
+function(ibrt_binary_uses_debug_crt binary out_var)
+  set(${out_var} "UNKNOWN" PARENT_SCOPE)
+  if(NOT EXISTS "${binary}")
+    return()
+  endif()
+  find_program(IBRT_DUMPBIN_EXECUTABLE NAMES dumpbin)
+  if(NOT IBRT_DUMPBIN_EXECUTABLE)
+    return()
+  endif()
+
+  file(TO_NATIVE_PATH "${binary}" _native_binary)
+  execute_process(
+    COMMAND "${IBRT_DUMPBIN_EXECUTABLE}" /dependents "${_native_binary}"
+    OUTPUT_VARIABLE _deps_out
+    ERROR_VARIABLE _deps_out
+    RESULT_VARIABLE _deps_rc)
+  if(NOT _deps_rc EQUAL 0)
+    return()
+  endif()
+
+  # A Debug build pulls in the debug C runtime DLLs, which carry a trailing
+  # 'D'/'d': MSVCP###D.dll, VCRUNTIME###D.dll, ucrtbased.dll. Compare
+  # case-insensitively.
+  string(TOUPPER "${_deps_out}" _deps_upper)
+  if(_deps_upper MATCHES "MSVCP[0-9]+D\\.DLL"
+      OR _deps_upper MATCHES "VCRUNTIME[0-9]+D\\.DLL"
+      OR _deps_upper MATCHES "UCRTBASED\\.DLL")
+    set(${out_var} TRUE PARENT_SCOPE)
+  else()
+    set(${out_var} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
+
+# Guard against pairing a Debug IBRT build with Release BRL-CAD/bext (or vice
+# versa) on Windows, where Debug and Release builds cannot be mixed.
+function(ibrt_check_dependency_runtime)
+  if(NOT MSVC)
+    return()
+  endif()
+
+  # Representative dependency binaries. bext is the tree most often
+  # mismatched (a single Release bext used for both configs), so check it
+  # first; the BRL-CAD runtime is a best-effort second probe.
+  set(_probes "${BEXT_INSTALL_DIR}/bin/ospray.dll;bext (BEXT_INSTALL_DIR)")
+  foreach(_brlcad_dll rt bu bn)
+    foreach(_candidate
+        "${BRLCAD_PREFIX}/bin/lib${_brlcad_dll}.dll"
+        "${BRLCAD_PREFIX}/bin/${_brlcad_dll}.dll")
+      if(EXISTS "${_candidate}")
+        list(APPEND _probes "${_candidate};BRL-CAD (BRLCAD_PREFIX)")
+        break()
+      endif()
+    endforeach()
+  endforeach()
+
+  if(IBRT_CONFIG_IS_DEBUG)
+    set(_needs "Debug")
+    set(_found "Release")
+  else()
+    set(_needs "Release")
+    set(_found "Debug")
+  endif()
+
+  set(_checked FALSE)
+  while(_probes)
+    list(POP_FRONT _probes _binary _label)
+    ibrt_binary_uses_debug_crt("${_binary}" _is_debug)
+    if(_is_debug STREQUAL "UNKNOWN")
+      continue()
+    endif()
+    set(_checked TRUE)
+    if(NOT (_is_debug STREQUAL "${IBRT_CONFIG_IS_DEBUG}"))
+      message(FATAL_ERROR
+        "Debug/Release mismatch: this ${CMAKE_BUILD_TYPE} IBRT build needs "
+        "${_needs} dependencies, but the ${_label} dependency at\n"
+        "    ${_binary}\n"
+        "is a ${_found} build. Debug and Release builds cannot be mixed. Point "
+        "this build at a ${_needs} BRL-CAD and bext tree, or configure a "
+        "matching IBRT build.")
+    endif()
+  endwhile()
+
+  if(_checked)
+    message(STATUS "IBRT: dependencies match this ${CMAKE_BUILD_TYPE} build.")
+  else()
+    message(STATUS
+      "IBRT: could not verify the dependency build type (dumpbin unavailable "
+      "or dependency DLLs not found); skipping the Debug/Release check.")
+  endif()
+endfunction()
+
 macro(ibrt_configure_dependencies)
-  ibrt_require_directory(BEXT_INSTALL_DIR "the built bext install tree, typically <bext>/.build/install")
+  # BEXT_INSTALL_DIR points at the bext install subdirectory. As an
+  # alternative, BRLCAD_EXT_DIR may point at the bext build directory (which
+  # holds install/ and noinstall/); in that case BEXT_INSTALL_DIR is
+  # BRLCAD_EXT_DIR/install.
+  if((NOT DEFINED BEXT_INSTALL_DIR OR BEXT_INSTALL_DIR STREQUAL "")
+      AND DEFINED BRLCAD_EXT_DIR AND NOT BRLCAD_EXT_DIR STREQUAL "")
+    set(BEXT_INSTALL_DIR "${BRLCAD_EXT_DIR}/install")
+    message(STATUS "IBRT: using BEXT_INSTALL_DIR from BRLCAD_EXT_DIR: ${BEXT_INSTALL_DIR}")
+  endif()
+
+  ibrt_require_directory(BEXT_INSTALL_DIR "the built bext install tree, e.g. <bext-build>/install; or set BRLCAD_EXT_DIR to <bext-build>")
   ibrt_require_directory(BRLCAD_PREFIX "the BRL-CAD install prefix")
 
   if(EXISTS "${BEXT_INSTALL_DIR}/.build/install" AND EXISTS "${BEXT_INSTALL_DIR}/CMakeLists.txt")
@@ -28,6 +132,9 @@ macro(ibrt_configure_dependencies)
       "BEXT_INSTALL_DIR does not look like a bext install tree. "
       "Expected to find ${BEXT_INSTALL_DIR}/lib/cmake.")
   endif()
+
+  # Fail early and clearly on a Debug/Release dependency mismatch (Windows).
+  ibrt_check_dependency_runtime()
 
   list(PREPEND CMAKE_PREFIX_PATH "${BEXT_INSTALL_DIR}")
 
