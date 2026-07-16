@@ -23,6 +23,12 @@ include(CTest)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# Normalize the build type and MSVC runtime so Debug/Release IBRT builds
+# stay ABI-compatible with the matching BRL-CAD/bext trees. Must run after
+# project() (needs MSVC / GENERATOR_IS_MULTI_CONFIG) and before any targets.
+include(IBRTBuildTypes)
+ibrt_setup_build_types()
+
 set(IBRT_RENDER_WORKER_DEFAULT OFF)
 if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
   set(IBRT_RENDER_WORKER_DEFAULT ON)
@@ -35,6 +41,8 @@ option(IBRT_ENABLE_RENDER_WORKER "Build the out-of-process render worker" ${IBRT
 
 set(BEXT_INSTALL_DIR "" CACHE PATH
   "Path to the bext install tree that provides OSPRay, Qt, and related dependencies")
+set(BRLCAD_EXT_DIR "" CACHE PATH
+  "Path to the bext build directory (contains install/ and noinstall/); an alternative to BEXT_INSTALL_DIR, which is then BRLCAD_EXT_DIR/install")
 set(BRLCAD_PREFIX "" CACHE PATH "Path to the BRL-CAD install prefix")
 
 include(IBRTDependencies)
