@@ -89,7 +89,11 @@ void RenderWidget::applyViewAction(
           -right.y * sx + upCam.y * sy,
           -right.z * sx + upCam.z * sy);
     } else {
-      float axisDelta = float(delta.x() + verticalDelta) * panSpeed_ * dist_;
+      // The vertical term is subtracted here: this is the one drag path the
+      // global Y-flip (controlDelta) missed. Because moving center_ drags the
+      // camera with it, a positive verticalDelta (drag up) must move the target
+      // down so the object appears to move up. Horizontal stays additive.
+      float axisDelta = float(delta.x() - verticalDelta) * panSpeed_ * dist_;
 
       if (result.axis == Axis::X)
         move = vec3f(axisDelta, 0.f, 0.f);
