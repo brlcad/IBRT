@@ -1545,9 +1545,12 @@ void RenderWidget::mouseMoveEvent(QMouseEvent *e)
       float sx = float(d.x()) * panSpeed_ * dist_;
       float sy = float(verticalDelta) * panSpeed_ * dist_;
 
-      center_ = vec3f(center_.x - right.x * sx + upCam.x * sy,
-          center_.y - right.y * sx + upCam.y * sy,
-          center_.z - right.z * sx + upCam.z * sy);
+      // Vertical is subtracted so a drag up moves the model up: moving center_
+      // drags the camera with it, so +up would push the target up and make the
+      // model appear to fall. Horizontal stays -right for the same grab feel.
+      center_ = vec3f(center_.x - right.x * sx - upCam.x * sy,
+          center_.y - right.y * sx - upCam.y * sy,
+          center_.z - right.z * sx - upCam.z * sy);
 
       syncCameraToBackend();
       renderOnce();
