@@ -208,6 +208,11 @@ class OsprayBackend
 
   std::vector<uint32_t> displayPixels_;
   std::vector<uint32_t> passPixels_;
+  // Snapshot of the last ambient-occlusion-free progressive frame, used as the
+  // base for the crossfade into the accumulating (AO-enabled) result.
+  std::vector<uint32_t> crossfadePixels_;
+  // Number of accumulation frames blended so far since the last settle.
+  int accumBlendFrame_ = 0;
   std::string lastError_;
   float lastFrameTimeMs_ = 0.0f;
   std::string currentRenderer_ = "scivis";
@@ -237,6 +242,9 @@ class OsprayBackend
   static constexpr std::array<int, 5> kProgressiveScales{{16, 8, 4, 2, 1}};
   static constexpr int kDefaultWatchdogMs = 1500;
   static constexpr int kAoBackoffStreak = 3;
+  // Number of accumulation frames over which the AO shading fades in, hiding
+  // both the abrupt onset of ambient occlusion and its early single-sample noise.
+  static constexpr int kAccumBlendFrames = 12;
 
   bool watchdogTriggered_ = false;
   bool dynamicModeActive_ = false;

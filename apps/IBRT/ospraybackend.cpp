@@ -1392,6 +1392,7 @@ void OsprayBackend::resetProgressiveState(bool clearDisplay)
   backoffApplied_ = false;
   watchdogTriggered_ = false;
   progressiveFramesAtCurrentScale_ = 0;
+  accumBlendFrame_ = 0;
 
   if (clearDisplay)
     std::fill(displayPixels_.begin(), displayPixels_.end(), 0u);
@@ -1472,6 +1473,22 @@ bool OsprayBackend::startNextRenderWork()
   return true;
 }
 
+// Blends two packed sRGBA8 pixels. weight is in [0,256]; 0 yields base, 256
+// yields next. Interpolation happens in sRGB byte space, which is an
+// approximation but is visually smooth enough for a transition crossfade.
+static inline uint32_t blendSrgba(uint32_t base, uint32_t next, int weight)
+{
+  const int iw = 256 - weight;
+  const uint32_t r = (((base) & 0xFF) * iw + ((next) & 0xFF) * weight) >> 8;
+  const uint32_t g =
+      (((base >> 8) & 0xFF) * iw + ((next >> 8) & 0xFF) * weight) >> 8;
+  const uint32_t b =
+      (((base >> 16) & 0xFF) * iw + ((next >> 16) & 0xFF) * weight) >> 8;
+  const uint32_t a =
+      (((base >> 24) & 0xFF) * iw + ((next >> 24) & 0xFF) * weight) >> 8;
+  return r | (g << 8) | (b << 16) | (a << 24);
+}
+
 // Finalizes a completed frame, copies pixels, and updates quality heuristics.
 bool OsprayBackend::finishCompletedRender()
 {
@@ -1498,10 +1515,31 @@ bool OsprayBackend::finishCompletedRender()
       beginNextProgressivePass();
   } else {
     void *mapped = accumFb_.map(OSP_FB_COLOR);
-    std::memcpy(displayPixels_.data(),
-        mapped,
-        displayPixels_.size() * sizeof(uint32_t));
+    const uint32_t *accum = static_cast<const uint32_t *>(mapped);
+    const size_t pixelCount = displayPixels_.size();
+
+    if (accumBlendFrame_ == 0) {
+      // displayPixels_ still holds the last AO-free progressive frame; capture
+      // it as the crossfade base before the accumulating result overwrites it.
+      crossfadePixels_ = displayPixels_;
+    }
+
+    if (accumBlendFrame_ < kAccumBlendFrames
+        && crossfadePixels_.size() == pixelCount) {
+      // Ramp the weight 0 -> 256 across kAccumBlendFrames frames so the AO
+      // shading fades in rather than popping. Because early accumulation frames
+      // are mostly hidden behind the base, their single-sample noise is
+      // attenuated while the buffer converges.
+      const int weight =
+          std::min(256, 256 * (accumBlendFrame_ + 1) / kAccumBlendFrames);
+      for (size_t i = 0; i < pixelCount; ++i)
+        displayPixels_[i] = blendSrgba(crossfadePixels_[i], accum[i], weight);
+    } else {
+      std::memcpy(displayPixels_.data(), accum, pixelCount * sizeof(uint32_t));
+    }
+
     accumFb_.unmap(mapped);
+    ++accumBlendFrame_;
     ++accumulatedFrames_;
     updatedImage = true;
   }
