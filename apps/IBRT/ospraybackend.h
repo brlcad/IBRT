@@ -242,9 +242,11 @@ class OsprayBackend
   static constexpr std::array<int, 5> kProgressiveScales{{16, 8, 4, 2, 1}};
   static constexpr int kDefaultWatchdogMs = 1500;
   static constexpr int kAoBackoffStreak = 3;
-  // Number of accumulation frames over which the AO shading fades in, hiding
-  // both the abrupt onset of ambient occlusion and its early single-sample noise.
-  static constexpr int kAccumBlendFrames = 12;
+  // Number of accumulation frames over which the first full-resolution result
+  // is crossfaded in. Kept short: it only softens the step from the last coarse
+  // AO pass to full resolution, then hands off to the live accumulation buffer
+  // so its natural convergence stays visible rather than being masked.
+  static constexpr int kAccumBlendFrames = 4;
 
   bool watchdogTriggered_ = false;
   bool dynamicModeActive_ = false;
