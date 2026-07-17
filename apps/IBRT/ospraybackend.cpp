@@ -328,9 +328,16 @@ bool OsprayBackend::advanceRender(int timeBudgetMs)
     }
 
     const int backoffAo = std::max(0, interactionAo - aoBackoffSteps_);
+    // Ramp AO in over the finer progressive passes once the view is settling,
+    // so the occlusion shading is established before full resolution instead of
+    // appearing all at once. The pass upsample blurs the sparse-sample noise,
+    // and the count is capped at 1 so interaction (which holds at the coarse
+    // start scale) and high custom AO counts stay cheap until accumulation.
+    const int progressiveAo =
+        (!isInteracting_ && passScale_ <= 4) ? std::min(backoffAo, 1) : 0;
     const int effectiveAoSamples = (renderPhase_ == RenderPhase::Accumulate)
         ? configuredAo
-        : ((passScale_ > 1) ? 0 : backoffAo);
+        : ((passScale_ > 1) ? progressiveAo : backoffAo);
     const float effectiveAoDistance = configuredAoDistanceForCurrentMode();
     const int effectivePixelSamples =
         (renderPhase_ == RenderPhase::Accumulate)
