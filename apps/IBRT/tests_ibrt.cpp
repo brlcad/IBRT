@@ -58,6 +58,7 @@ class IbrtTests : public QObject
   void unitRenderReplayBuildsObjReplayPlan();
   void unitRenderReplayBuildsBrlcadReplayPlan();
   void unitRenderReplaySkipsWhenWorkerPathInactive();
+  void integrationWorkerDestructorDoesNotEmitDisconnect();
   void integrationBackendListBrlcadObjectsFromGeneratedDb();
   void integrationBackendListBrlcadHierarchyFromGeneratedDb();
   void integrationBackendLoadBrlcadRejectsInvalidFile();
@@ -1346,37 +1347,37 @@ void IbrtTests::unitRenderWorkflowDecidesRebuildAction()
   {
     const auto decision = ibrt::renderworkflow::decideRebuildAction(
         RebuildInputs{false, true, true, false, {}, {}, {}});
-    QCOMPARE(decision.action, RebuildAction::RestartWorker);
+    QCOMPARE(decision.action, RebuildAction::ResetViewOnly);
     QCOMPARE(decision.shouldResetView, true);
   }
 
   {
     const auto decision = ibrt::renderworkflow::decideRebuildAction(
         RebuildInputs{false, true, false, false, {}, {}, {}});
-    QCOMPARE(decision.action, RebuildAction::RestartWorker);
-    QCOMPARE(decision.shouldResetView, false);
+    QCOMPARE(decision.action, RebuildAction::ResetViewOnly);
+    QCOMPARE(decision.shouldResetView, true);
   }
 
   {
     const auto decision = ibrt::renderworkflow::decideRebuildAction(
         RebuildInputs{false, false, false, true, QStringLiteral("model.obj"), {}, {}});
-    QCOMPARE(decision.action, RebuildAction::ReloadObj);
+    QCOMPARE(decision.action, RebuildAction::ResetViewOnly);
     QCOMPARE(decision.shouldResetView, true);
   }
 
   {
     const auto decision = ibrt::renderworkflow::decideRebuildAction(RebuildInputs{
         false, false, false, false, {}, QStringLiteral("scene.g"), QStringLiteral("part.r")});
-    QCOMPARE(decision.action, RebuildAction::ReloadBrlcad);
-    QCOMPARE(decision.brlcadObjectName, QStringLiteral("part.r"));
+    QCOMPARE(decision.action, RebuildAction::ResetViewOnly);
+    QCOMPARE(decision.brlcadObjectName, QString());
     QCOMPARE(decision.shouldResetView, true);
   }
 
   {
     const auto decision = ibrt::renderworkflow::decideRebuildAction(RebuildInputs{
         false, false, false, false, {}, QStringLiteral("scene.g"), QStringLiteral("   ")});
-    QCOMPARE(decision.action, RebuildAction::ReloadBrlcad);
-    QCOMPARE(decision.brlcadObjectName, QStringLiteral("all"));
+    QCOMPARE(decision.action, RebuildAction::ResetViewOnly);
+    QCOMPARE(decision.brlcadObjectName, QString());
     QCOMPARE(decision.shouldResetView, true);
   }
 
@@ -1589,6 +1590,31 @@ void IbrtTests::integrationWorkerSmokeTestWorkerLifecycle()
   std::fprintf(stderr, "IBRTTests: stopping worker\n");
 
   client.stop();
+}
+
+void IbrtTests::integrationWorkerDestructorDoesNotEmitDisconnect()
+{
+  if (!RenderWorkerClient::isSupported())
+    QSKIP("Render worker integration test is unsupported on this platform.");
+
+  const QString workerPath =
+      RenderWorkerClient::defaultWorkerPath(QCoreApplication::applicationDirPath());
+  if (!QFileInfo::exists(workerPath))
+    QSKIP("Render worker executable is not present next to the test binary.");
+
+  auto *client = new RenderWorkerClient;
+  if (!client->start(workerPath)) {
+    const QString error = client->lastError();
+    delete client;
+    QSKIP(qPrintable(error));
+  }
+
+  QSignalSpy connectionSpy(client, &RenderWorkerClient::workerConnectionChanged);
+  QVERIFY(connectionSpy.isValid());
+  QVERIFY(client->isConnected());
+
+  delete client;
+  QCOMPARE(connectionSpy.count(), 0);
 }
 
 void IbrtTests::integrationWorkerLoadBrlcadProducesNonEmptyFrame()
