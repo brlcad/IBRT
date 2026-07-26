@@ -395,30 +395,16 @@ void RenderWidget::syncCameraToBackend()
     const vec3f eye = currentCameraPosition();
     const vec3f up = currentCameraUp();
     backend_.setCamera(eye, center_, up, fovy_);
-    if (usingWorkerRenderPath()) {
-      if (interactionActive_
-          && ibrt::renderworkflow::shouldPreemptWorkerInteractiveCamera(
-              true, workerBusySeconds())) {
-        restartWorkerAndReplayState();
-        return;
-      }
+    if (usingWorkerRenderPath())
       queueWorkerCameraUpdate(eye, center_, up, fovy_);
-    }
   } else {
     flyPitch_ = clampf(flyPitch_, -1.4f, 1.4f);
 
     vec3f forward = forwardFromAngles(flyYaw_, flyPitch_);
 
     backend_.setCamera(flyPos_, flyPos_ + forward, worldUp(), fovy_);
-    if (usingWorkerRenderPath()) {
-      if (interactionActive_
-          && ibrt::renderworkflow::shouldPreemptWorkerInteractiveCamera(
-              true, workerBusySeconds())) {
-        restartWorkerAndReplayState();
-        return;
-      }
+    if (usingWorkerRenderPath())
       queueWorkerCameraUpdate(flyPos_, flyPos_ + forward, worldUp(), fovy_);
-    }
   }
 }
 
@@ -444,12 +430,6 @@ void RenderWidget::beginInteraction()
     backend_.setInteracting(true);
     if (usingWorkerRenderPath())
       queueWorkerInteracting(true);
-
-    // The worker pipe is synchronous. If a stale heavy frame is already
-    // blocking the worker, restart once at interaction start so the latest
-    // camera state can replace it instead of waiting for completion.
-    if (usingWorkerRenderPath() && workerBusySeconds() > 0.1f)
-      restartWorkerAndReplayState();
   }
 
   interactionDebounceTimer_->start(kInteractionDebounceMs);
@@ -747,11 +727,6 @@ void RenderWidget::paintGL()
   const auto applyRendererSelection = [this](const QString &rendererName) {
     currentRenderer_ = rendererName;
     if (usingWorkerRenderPath()) {
-      if (workerRequestInFlight_.load()) {
-        restartWorkerAndReplayState();
-        update();
-        return;
-      }
       queueWorkerRenderer(currentRenderer_);
       resetAccumulationTargets();
       renderOnce();
