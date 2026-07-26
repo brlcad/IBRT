@@ -3,7 +3,6 @@
 
 /*! \file ospray/moduleInit \brief Defines the module initialization callback */
 
-#include <iostream>
 #include "geometry/brlcad.h"
 #include "ospray/version.h"
 
@@ -47,7 +46,6 @@ extern "C" OSPError OSPRAY_DLLEXPORT ospray_module_init_brl_cad(
         OSPGeometry geom = ospNewGeometry("brlcad");
     */
     Geometry::registerType<BRLCAD>("brlcad");
-    std::cout << "Initializing BRL-CAD module for OSPRay" << std::endl;
   }
 
   return status;
