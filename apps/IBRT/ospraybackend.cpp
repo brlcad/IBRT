@@ -71,6 +71,28 @@ std::string trimCopy(const std::string &value)
   return value.substr(first, last - first + 1);
 }
 
+// Reports whether OSPRay was already asked to load a module during ospInit().
+bool moduleRequestedAtStartup(const char *moduleName)
+{
+  const char *modules = std::getenv("OSPRAY_LOAD_MODULES");
+  if (!modules || !moduleName)
+    return false;
+
+  const std::string requested(modules);
+  size_t begin = 0;
+  while (begin <= requested.size()) {
+    const size_t end = requested.find(',', begin);
+    const std::string entry = requested.substr(
+        begin, end == std::string::npos ? std::string::npos : end - begin);
+    if (trimCopy(entry) == moduleName)
+      return true;
+    if (end == std::string::npos)
+      break;
+    begin = end + 1;
+  }
+  return false;
+}
+
 // Loads the custom BRL-CAD OSPRay module once and caches the outcome for future calls.
 bool ensureBrlcadModuleLoaded(std::string &errorOut)
 {
@@ -82,7 +104,10 @@ bool ensureBrlcadModuleLoaded(std::string &errorOut)
 
   if (!attempted) {
     attempted = true;
-    loaded = (ospLoadModule("brl_cad") == OSP_NO_ERROR);
+    // Calling ospLoadModule() again reruns the module callback even when
+    // OSPRAY_LOAD_MODULES already registered the geometry during ospInit().
+    loaded = moduleRequestedAtStartup("brl_cad")
+        || (ospLoadModule("brl_cad") == OSP_NO_ERROR);
     if (!loaded) {
       loadError =
           "Failed to load BRL-CAD OSPRay module 'brl_cad'. Ensure "
