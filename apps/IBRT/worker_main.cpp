@@ -294,7 +294,7 @@ int main(int argc, char *argv[])
 
       const uint32_t *pixels = backend.pixels();
       const size_t pixelBytes = size_t(backend.width()) * size_t(backend.height()) * 4;
-      if (pixels && pixelBytes > 0) {
+      if (updated && pixels && pixelBytes > 0) {
         const size_t base = payload.size();
         payload.resize(base + pixelBytes);
         std::memcpy(payload.data() + base, pixels, pixelBytes);
@@ -589,7 +589,7 @@ int main(int argc, char *argv[])
 
       const uint32_t *pixels = backend.pixels();
       const size_t pixelBytes = size_t(backend.width()) * size_t(backend.height()) * 4;
-      if (pixels && pixelBytes > 0) {
+      if (updated && pixels && pixelBytes > 0) {
         const size_t base = payload.size();
         payload.resize(base + pixelBytes);
         std::memcpy(payload.data() + base, pixels, pixelBytes);

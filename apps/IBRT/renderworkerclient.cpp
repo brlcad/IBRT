@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QSignalBlocker>
 #include <QThread>
 #if defined(__linux__) || defined(__APPLE__)
 #include <sys/socket.h>
@@ -17,6 +18,7 @@
 #endif
 
 #include <cstring>
+#include <limits>
 #include <string>
 
 namespace {
@@ -72,6 +74,10 @@ RenderWorkerClient::RenderWorkerClient(QObject *parent) : QObject(parent)
 
 RenderWorkerClient::~RenderWorkerClient()
 {
+  // QObject parents delete their children from the base QObject destructor,
+  // after a receiver's derived and widget state may already be gone.  Do not
+  // notify external UI slots while this client is itself being destroyed.
+  const QSignalBlocker blocker(this);
   stop();
 }
 
@@ -479,24 +485,38 @@ RenderWorkerClient::FrameResult RenderWorkerClient::requestFrame()
 
   FrameHeader header{};
   std::memcpy(&header, payload.data(), sizeof(header));
-  const int pixelBytes = int(header.width) * int(header.height) * 4;
-  if (payload.size() < sizeof(FrameHeader) + size_t(pixelBytes) || header.width == 0
-      || header.height == 0) {
+  constexpr uint32_t kMaxFrameDimension = 32768;
+  if (header.width == 0 || header.height == 0
+      || header.width > kMaxFrameDimension || header.height > kMaxFrameDimension) {
     return result;
   }
 
-  QImage image(header.width, header.height, QImage::Format_RGBA8888);
-  std::memcpy(image.bits(), payload.data() + sizeof(FrameHeader), size_t(pixelBytes));
-  result.image = image;
+  const size_t pixelBytes = size_t(header.width) * size_t(header.height) * 4u;
+  const bool hasUpdatedImage = header.updated != 0;
+  const size_t imagePayloadBytes = hasUpdatedImage ? pixelBytes : 0u;
+  if (imagePayloadBytes > std::numeric_limits<size_t>::max() - sizeof(FrameHeader)
+      || payload.size() < sizeof(FrameHeader) + imagePayloadBytes) {
+    return result;
+  }
+
+  if (hasUpdatedImage) {
+    QImage image(
+        static_cast<int>(header.width),
+        static_cast<int>(header.height),
+        QImage::Format_RGBA8888);
+    if (image.isNull() || size_t(image.sizeInBytes()) < pixelBytes)
+      return result;
+    std::memcpy(image.bits(), payload.data() + sizeof(FrameHeader), pixelBytes);
+    result.image = image;
+  }
   result.frameTimeMs = header.frameTimeMs;
   result.renderFPS = header.renderFPS;
-  result.updated = header.updated != 0;
+  result.updated = hasUpdatedImage;
   result.currentScale = int(header.currentScale);
   result.accumulatedFrames = header.accumulatedFrames;
   result.watchdogCancels = header.watchdogCancels;
   result.aoAutoReductions = header.aoAutoReductions;
-  const size_t pixelOffset = sizeof(FrameHeader);
-  const size_t rendererOffset = pixelOffset + size_t(pixelBytes);
+  const size_t rendererOffset = sizeof(FrameHeader) + imagePayloadBytes;
   if (header.rendererNameSize > 0
       && payload.size() >= rendererOffset + size_t(header.rendererNameSize)) {
     result.renderer = QString::fromStdString(
