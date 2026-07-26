@@ -1,16 +1,19 @@
 // Copyright (c) 2026 BRL-CAD Visualizer contributors
 // SPDX-License-Identifier: MIT
 
-// BRL-CAD's <brlcad/common.h> must be the first thing this translation unit
-// sees. It warns (and, on MSVC toolchains that reject #warning, hard-errors) if
-// it detects that another header defined UNUSED before it. rkcommon/platform.h,
-// pulled in transitively by ospraybackend.h -> ospray_cpp -> rkcommon, defines
-// UNUSED, so common.h has to win the race by being included up front.
+// BRL-CAD's portability and C API headers must precede rkcommon.  In
+// particular, bio.h owns the platform-specific unistd/setmode handling, while
+// common.h and rkcommon/platform.h define incompatible UNUSED macros.
 extern "C" {
 #include <brlcad/common.h>
+#include <brlcad/raytrace.h>
+#include <brlcad/rt/search.h>
+#include <brlcad/bv/vlist.h>
 }
 
+#undef UNUSED
 #include "ospraybackend.h"
+
 #include <chrono>
 #include <algorithm>
 #include <cassert>
@@ -26,13 +29,6 @@ extern "C" {
 #include <ospray/ospray.h>
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
-
-// BRL-CAD headers (C API, needs extern "C" guard)
-extern "C" {
-#include <brlcad/raytrace.h>
-#include <brlcad/rt/search.h>
-#include <brlcad/bv/vlist.h>
-}
 
 using rkcommon::math::vec3f;
 using rkcommon::math::vec2f;
