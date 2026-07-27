@@ -5,6 +5,7 @@
 
 #include "renderworkerclient.h"
 #include "qualitysettings.h"
+#include "renderappearance.h"
 #include "renderreplaylogic.h"
 #include "renderworkflowlogic.h"
 #include "renderworkerqueuelogic.h"
@@ -422,6 +423,17 @@ void RenderWidget::resetAccumulationTargets()
     queueWorkerResetAccumulation();
 }
 
+// Restarts progressive rendering without changing the orbit/fly state. Explicitly
+// re-sending the camera also protects the view when a renderer object or worker
+// has just been recreated.
+void RenderWidget::refreshRenderPreservingView()
+{
+  resetAccumulationTargets();
+  syncCameraToBackend();
+  renderOnce();
+  update();
+}
+
 // Marks the start of an interactive manipulation and lowers render quality if needed.
 void RenderWidget::beginInteraction()
 {
@@ -565,7 +577,8 @@ void RenderWidget::advanceRender()
 void RenderWidget::paintGL()
 {
   glViewport(0, 0, width() * devicePixelRatioF(), height() * devicePixelRatioF());
-  glClearColor(0.1f, 0.1f, 0.12f, 1.0f);
+  const auto background = ibrt::renderappearance::kViewportBackground;
+  glClearColor(background.r, background.g, background.b, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT);
 
   // Draw OSPRay image with Qt
@@ -701,13 +714,13 @@ void RenderWidget::paintGL()
     wireframeVisualization_ = false;
     backend_.setVisualizationMode(OsprayBackend::VisualizationMode::Solid);
     if (!currentBrlcadPath_.isEmpty())
-      loadBrlcadModel(currentBrlcadPath_, currentBrlcadObject_);
+      loadBrlcadModelImpl(currentBrlcadPath_, currentBrlcadObject_, false);
   }
   if (ImGui::RadioButton("Wireframe", visualizationMode == 1)) {
     wireframeVisualization_ = true;
     backend_.setVisualizationMode(OsprayBackend::VisualizationMode::Wireframe);
     if (!currentBrlcadPath_.isEmpty())
-      loadBrlcadModel(currentBrlcadPath_, currentBrlcadObject_);
+      loadBrlcadModelImpl(currentBrlcadPath_, currentBrlcadObject_, false);
   }
 
   ImGui::Separator();
@@ -726,16 +739,11 @@ void RenderWidget::paintGL()
 
   const auto applyRendererSelection = [this](const QString &rendererName) {
     currentRenderer_ = rendererName;
-    if (usingWorkerRenderPath()) {
+    if (usingWorkerRenderPath())
       queueWorkerRenderer(currentRenderer_);
-      resetAccumulationTargets();
-      renderOnce();
-    } else {
+    else
       backend_.setRenderer(rendererName.toStdString());
-      resetAccumulationTargets();
-      renderOnce();
-    }
-    update();
+    refreshRenderPreservingView();
   };
 
   if (ImGui::RadioButton("ao", rendererMode == 0)) {
@@ -1072,8 +1080,7 @@ void RenderWidget::paintGL()
       if (!preemptWorkerControlIfBusy())
         queueWorkerSettings(workerSettings_);
     }
-    renderOnce();
-    update();
+    refreshRenderPreservingView();
   }
 
   if (ImGui::Button("Reset View")) {
@@ -1198,6 +1205,14 @@ bool RenderWidget::loadModel(const QString &path)
 // Starts an asynchronous BRL-CAD scene load for the selected top-level object.
 bool RenderWidget::loadBrlcadModel(const QString &path, const QString &topObject)
 {
+  return loadBrlcadModelImpl(path, topObject, true);
+}
+
+// Loads BRL-CAD geometry, optionally reframing a genuinely new scene. Renderer
+// visualization changes reload the geometry but must retain the current camera.
+bool RenderWidget::loadBrlcadModelImpl(
+    const QString &path, const QString &topObject, bool resetViewAfterLoad)
+{
   if (sceneLoadInProgress_.load()) {
     lastError_ = QStringLiteral("A scene load is already in progress.");
     return false;
@@ -1218,14 +1233,24 @@ bool RenderWidget::loadBrlcadModel(const QString &path, const QString &topObject
   const bool requestedWireframe = wireframeVisualization_;
 
   startAsyncLoad(
-      [this, path, resolvedObject, availableObjects, requestedWireframe]() {
+      [this,
+          path,
+          resolvedObject,
+          availableObjects,
+          requestedWireframe,
+          resetViewAfterLoad]() {
         if (usingWorkerRenderPath()) {
           // BRL-CAD scene loading can be expensive, so it follows the same async
           // worker flow as OBJ loading when the worker is available.
           const auto result = renderWorkerClient_->loadBrlcad(
               path, resolvedObject, requestedWireframe);
           QMetaObject::invokeMethod(this,
-              [this, result, path, resolvedObject, availableObjects]() {
+              [this,
+                  result,
+                  path,
+                  resolvedObject,
+                  availableObjects,
+                  resetViewAfterLoad]() {
             sceneLoadInProgress_.store(false);
             lastError_ = result.errorMessage;
             if (result.success) {
@@ -1236,8 +1261,12 @@ bool RenderWidget::loadBrlcadModel(const QString &path, const QString &topObject
               currentBrlcadPath_ = path;
               currentBrlcadObject_ = resolvedObject;
               currentBrlcadObjects_ = availableObjects;
-              resetFlySpeed();
-              resetView();
+              if (resetViewAfterLoad) {
+                resetFlySpeed();
+                resetView();
+              } else {
+                refreshRenderPreservingView();
+              }
             } else {
               update();
             }
@@ -1256,7 +1285,13 @@ bool RenderWidget::loadBrlcadModel(const QString &path, const QString &topObject
             ok ? QString() : QString::fromStdString(backend_.lastError());
 
         QMetaObject::invokeMethod(this,
-            [this, ok, error, path, resolvedObject, availableObjects]() {
+            [this,
+                ok,
+                error,
+                path,
+                resolvedObject,
+                availableObjects,
+                resetViewAfterLoad]() {
               sceneLoadInProgress_.store(false);
               lastError_ = error;
               if (ok) {
@@ -1266,8 +1301,12 @@ bool RenderWidget::loadBrlcadModel(const QString &path, const QString &topObject
                 currentBrlcadPath_ = path;
                 currentBrlcadObject_ = resolvedObject;
                 currentBrlcadObjects_ = availableObjects;
-                resetFlySpeed();
-                resetView();
+                if (resetViewAfterLoad) {
+                  resetFlySpeed();
+                  resetView();
+                } else {
+                  refreshRenderPreservingView();
+                }
               } else {
                 update();
               }

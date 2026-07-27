@@ -128,6 +128,7 @@ class RenderWidget : public QOpenGLWidget, protected QOpenGLFunctions
   void syncCameraToBackend();
   bool usingWorkerRenderPath() const;
   void resetAccumulationTargets();
+  void refreshRenderPreservingView();
   void beginInteraction();
   void scheduleInteractionEnd();
   void finishInteraction();
@@ -138,6 +139,8 @@ class RenderWidget : public QOpenGLWidget, protected QOpenGLFunctions
   float sceneBoundsMaxExtent() const;
   void renderOnce();
   void advanceRender();
+  bool loadBrlcadModelImpl(
+      const QString &path, const QString &topObject, bool resetViewAfterLoad);
   void startAsyncLoad(const std::function<void()> &loader, const QString &statusText);
   void startWorkerPolling();
   void stopWorkerPolling();
