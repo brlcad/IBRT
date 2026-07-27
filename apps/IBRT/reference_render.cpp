@@ -12,6 +12,7 @@
 #include <ospray/ospray.h>
 
 #include "ospraybackend.h"
+#include "renderappearance.h"
 
 namespace {
 
@@ -107,6 +108,11 @@ int main(int argc, char **argv)
 
       OsprayBackend backend;
       backend.init();
+      const auto referenceBackground =
+          ibrt::renderappearance::kReferenceBackground;
+      backend.setOpaqueBackgroundColor(rkcommon::math::vec3f(referenceBackground.r,
+          referenceBackground.g,
+          referenceBackground.b));
       backend.setSettingsMode(OsprayBackend::SettingsMode::Custom);
       backend.setCustomStartScale(1);
       backend.setCustomAccumulationEnabled(true);
