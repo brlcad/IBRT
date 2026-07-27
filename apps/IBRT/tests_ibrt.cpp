@@ -66,6 +66,7 @@ class IbrtTests : public QObject
   void integrationBackendBrlcadToOsprayProducesGeometry();
   void integrationBackendValidBrlcadSceneDoesNotUseDefaultBounds();
   void integrationBackendRenderProducesNonEmptyFrame();
+  void integrationBackendAccumulatedSilhouettesStayOpaque();
   void integrationBackendHeadlessMossRenderWritesReferenceImages();
   void integrationBackendRenderProducesConsistentFrameForSameInput();
   void integrationBackendGeometryChangeAffectsRenderedOutput();
@@ -692,6 +693,45 @@ void IbrtTests::integrationBackendRenderProducesNonEmptyFrame()
     return;
 
   QVERIFY(frameHasNonZeroPixel(pixels.data(), backend.width(), backend.height()));
+}
+
+void IbrtTests::integrationBackendAccumulatedSilhouettesStayOpaque()
+{
+  OsprayBackend backend;
+  backend.init();
+  backend.setSettingsMode(OsprayBackend::SettingsMode::Custom);
+  backend.setCustomStartScale(1);
+  backend.setAoSamples(0);
+  backend.setPixelSamples(4);
+  backend.setCustomAccumulationEnabled(true);
+  backend.setCustomMaxAccumulationFrames(4);
+  backend.resize(96, 96);
+  frameCameraToBounds(backend);
+  backend.resetAccumulation();
+
+  std::vector<uint32_t> pixels;
+  for (int attempt = 0; attempt < 200 && backend.accumulatedFrames() < 4;
+       ++attempt) {
+    if (backend.advanceRender()) {
+      const uint32_t *frame = backend.pixels();
+      if (frame) {
+        pixels.assign(frame,
+            frame + size_t(backend.width()) * size_t(backend.height()));
+      }
+    }
+    QThread::msleep(10);
+  }
+
+  QVERIFY2(!pixels.empty(), "The accumulated silhouette test produced no frame.");
+  QCOMPARE(backend.accumulatedFrames(), uint64_t(4));
+
+  const bool allPixelsOpaque =
+      std::all_of(pixels.begin(), pixels.end(), [](uint32_t pixel) {
+        return ((pixel >> 24) & 0xffu) == 0xffu;
+      });
+  QVERIFY2(allPixelsOpaque,
+      "Accumulated surface coverage must be composited against the opaque "
+      "viewport background before presentation.");
 }
 
 void IbrtTests::integrationBackendHeadlessMossRenderWritesReferenceImages()
