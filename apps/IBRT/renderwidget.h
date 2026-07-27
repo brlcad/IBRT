@@ -98,8 +98,24 @@ class RenderWidget : public QOpenGLWidget, protected QOpenGLFunctions
   void focusInEvent(QFocusEvent *e) override;
   void focusOutEvent(QFocusEvent *e) override;
  private:
+  struct ViewState
+  {
+    InputMode inputMode = InputMode::Orbit;
+    rkcommon::math::vec3f center;
+    float distance = 0.0f;
+    float orbitTheta = 0.0f;
+    float orbitPhi = 0.0f;
+    float fovy = 60.0f;
+    rkcommon::math::vec3f flyPosition;
+    float flyYaw = 0.0f;
+    float flyPitch = 0.0f;
+    float flyMoveStep = 0.0f;
+  };
+
   // Camera helpers shared by orbit mode, fly mode, and object-manipulation overlays.
   static float fitDistanceFromBounds(float maxExtent, float fovyDeg);
+  ViewState captureViewState() const;
+  void restoreViewState(const ViewState &state);
   void syncFlyFromOrbit();
   void syncOrbitFromFly();
   rkcommon::math::vec3f currentCameraPosition() const;

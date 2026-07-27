@@ -386,7 +386,43 @@ void RenderWidget::resizeGL(int w, int h)
   backend_.resize(w, h);
   ImGui::GetIO().DisplaySize = ImVec2(float(w), float(h));
 
-  resetView();
+  if (currentModelPath_.isEmpty() && currentBrlcadPath_.isEmpty())
+    resetView();
+  else
+    refreshRenderPreservingView();
+}
+
+// Captures every field that determines the visible orbit or fly camera.
+RenderWidget::ViewState RenderWidget::captureViewState() const
+{
+  return {inputMode_,
+      center_,
+      dist_,
+      orbitTheta_,
+      orbitPhi_,
+      fovy_,
+      flyPos_,
+      flyYaw_,
+      flyPitch_,
+      flyMoveStep_};
+}
+
+// Restores a captured camera without deriving it again from scene bounds.
+void RenderWidget::restoreViewState(const ViewState &state)
+{
+  const bool modeDidChange = inputMode_ != state.inputMode;
+  inputMode_ = state.inputMode;
+  center_ = state.center;
+  dist_ = state.distance;
+  orbitTheta_ = state.orbitTheta;
+  orbitPhi_ = state.orbitPhi;
+  fovy_ = state.fovy;
+  flyPos_ = state.flyPosition;
+  flyYaw_ = state.flyYaw;
+  flyPitch_ = state.flyPitch;
+  flyMoveStep_ = state.flyMoveStep;
+  if (modeDidChange)
+    emit inputModeChanged(inputMode_);
 }
 
 // Pushes the current camera pose into either the worker or local backend.
@@ -1231,6 +1267,7 @@ bool RenderWidget::loadBrlcadModelImpl(
 
   currentBrlcadObjects_ = availableObjects;
   const bool requestedWireframe = wireframeVisualization_;
+  const ViewState viewBeforeLoad = captureViewState();
 
   startAsyncLoad(
       [this,
@@ -1238,6 +1275,7 @@ bool RenderWidget::loadBrlcadModelImpl(
           resolvedObject,
           availableObjects,
           requestedWireframe,
+          viewBeforeLoad,
           resetViewAfterLoad]() {
         if (usingWorkerRenderPath()) {
           // BRL-CAD scene loading can be expensive, so it follows the same async
@@ -1250,6 +1288,7 @@ bool RenderWidget::loadBrlcadModelImpl(
                   path,
                   resolvedObject,
                   availableObjects,
+                  viewBeforeLoad,
                   resetViewAfterLoad]() {
             sceneLoadInProgress_.store(false);
             lastError_ = result.errorMessage;
@@ -1265,6 +1304,7 @@ bool RenderWidget::loadBrlcadModelImpl(
                 resetFlySpeed();
                 resetView();
               } else {
+                restoreViewState(viewBeforeLoad);
                 refreshRenderPreservingView();
               }
             } else {
@@ -1291,6 +1331,7 @@ bool RenderWidget::loadBrlcadModelImpl(
                 path,
                 resolvedObject,
                 availableObjects,
+                viewBeforeLoad,
                 resetViewAfterLoad]() {
               sceneLoadInProgress_.store(false);
               lastError_ = error;
@@ -1305,6 +1346,7 @@ bool RenderWidget::loadBrlcadModelImpl(
                   resetFlySpeed();
                   resetView();
                 } else {
+                  restoreViewState(viewBeforeLoad);
                   refreshRenderPreservingView();
                 }
               } else {
