@@ -416,6 +416,7 @@ bool RenderWorkerClient::setRenderSettings(const RenderSettingsState &settings)
     uint32_t customLowQualityWhileInteracting;
     uint32_t customFullResAccumulationOnly;
     int32_t customWatchdogTimeoutMs;
+    float worldUp[3];
   } payload{settings.settingsMode,
       settings.automaticPreset,
       settings.automaticTargetFrameTimeMs,
@@ -431,7 +432,8 @@ bool RenderWorkerClient::setRenderSettings(const RenderSettingsState &settings)
       settings.customMaxAccumulationFrames,
       settings.customLowQualityWhileInteracting ? 1u : 0u,
       settings.customFullResAccumulationOnly ? 1u : 0u,
-      settings.customWatchdogTimeoutMs};
+      settings.customWatchdogTimeoutMs,
+      {settings.worldUpX, settings.worldUpY, settings.worldUpZ}};
   std::string response;
   return sendRequestBytes(static_cast<uint32_t>(ibrt::ipc::MessageType::SetRenderSettings),
       std::string(reinterpret_cast<const char *>(&payload), sizeof(payload)),

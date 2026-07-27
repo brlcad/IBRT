@@ -1842,16 +1842,23 @@ void RenderWidget::focusOutEvent(QFocusEvent *e)
 // Changes the world up-axis convention and realigns the current camera.
 void RenderWidget::setUpAxis(UpAxis axis)
 {
-  if (sceneLoadInProgress_.load()) {
-    upAxis_ = axis;
-    update();
-    return;
-  }
-
   if (axis == upAxis_)
     return;
 
   upAxis_ = axis;
+  const vec3f up = worldUp();
+  backend_.setWorldUp(up);
+  workerSettings_.worldUpX = up.x;
+  workerSettings_.worldUpY = up.y;
+  workerSettings_.worldUpZ = up.z;
+  if (usingWorkerRenderPath())
+    queueWorkerSettings(workerSettings_);
+
+  if (sceneLoadInProgress_.load()) {
+    update();
+    return;
+  }
+
   resetView();
 }
 

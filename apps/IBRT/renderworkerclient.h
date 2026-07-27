@@ -62,6 +62,9 @@ class RenderWorkerClient : public QObject
     bool customLowQualityWhileInteracting = false;
     bool customFullResAccumulationOnly = true;
     int customWatchdogTimeoutMs = 1500;
+    float worldUpX = 0.0f;
+    float worldUpY = 0.0f;
+    float worldUpZ = 1.0f;
   };
 
   explicit RenderWorkerClient(QObject *parent = nullptr);

@@ -42,6 +42,7 @@ class IbrtTests : public QObject
   void cleanupTestCase();
   void unitBackendCustomSettingsClampToExpectedRanges();
   void unitBackendAutomaticSettingsRoundTrip();
+  void unitBackendWorldUpRoundTrip();
   void unitBackendLoadObjRejectsMissingFile();
   void unitBackendLoadObjParsesSimpleTriangle();
   void unitQualitySettingsSeedWorkerStateFromAutomatic();
@@ -539,6 +540,18 @@ void IbrtTests::unitBackendAutomaticSettingsRoundTrip()
   QCOMPARE(backend.automaticAccumulationEnabled(), false);
   backend.setAutomaticAccumulationEnabled(true);
   QCOMPARE(backend.automaticAccumulationEnabled(), true);
+}
+
+void IbrtTests::unitBackendWorldUpRoundTrip()
+{
+  OsprayBackend backend;
+  QCOMPARE(backend.worldUp(), rkcommon::math::vec3f(0.f, 0.f, 1.f));
+
+  backend.setWorldUp(rkcommon::math::vec3f(0.f, 4.f, 0.f));
+  QCOMPARE(backend.worldUp(), rkcommon::math::vec3f(0.f, 1.f, 0.f));
+
+  backend.setWorldUp(rkcommon::math::vec3f(0.f, 0.f, 0.f));
+  QCOMPARE(backend.worldUp(), rkcommon::math::vec3f(0.f, 0.f, 1.f));
 }
 
 void IbrtTests::unitBackendLoadObjRejectsMissingFile()
@@ -1244,6 +1257,7 @@ void IbrtTests::unitQualitySettingsMirrorBackendToWorkerState()
   backend.setCustomLowQualityWhileInteracting(false);
   backend.setCustomFullResAccumulationOnly(false);
   backend.setCustomWatchdogTimeoutMs(2222);
+  backend.setWorldUp(rkcommon::math::vec3f(0.f, 1.f, 0.f));
 
   RenderWorkerClient::RenderSettingsState settings;
   ibrt::qualitysettings::mirrorBackendSettingsToWorkerState(backend, settings);
@@ -1264,6 +1278,9 @@ void IbrtTests::unitQualitySettingsMirrorBackendToWorkerState()
   QCOMPARE(settings.customLowQualityWhileInteracting, false);
   QCOMPARE(settings.customFullResAccumulationOnly, false);
   QCOMPARE(settings.customWatchdogTimeoutMs, 2222);
+  QCOMPARE(settings.worldUpX, 0.0f);
+  QCOMPARE(settings.worldUpY, 1.0f);
+  QCOMPARE(settings.worldUpZ, 0.0f);
 }
 
 void IbrtTests::unitInteractionControllerClassifiesDocumentedChords()

@@ -36,6 +36,8 @@ using rkcommon::math::vec3ui;
 using rkcommon::math::vec4f;
 
 namespace {
+// The authored light directions below use OSPRay's conventional +Y-up basis.
+// They are rotated into the application's active world-up basis before use.
 const vec3f kSunLightDirection(-0.3f, -1.0f, -0.2f);
 const vec3f kFillLightDirection(0.65f, -0.45f, 0.55f);
 const vec3f kRimLightDirection(-0.55f, -0.2f, 0.75f);
@@ -58,6 +60,35 @@ vec3f normalizeDirection(const vec3f &v)
   if (len <= 1e-6f)
     return vec3f(0.f, -1.f, 0.f);
   return vec3f(v.x / len, v.y / len, v.z / len);
+}
+
+vec3f normalizeWorldUp(const vec3f &up)
+{
+  const float len = std::sqrt(up.x * up.x + up.y * up.y + up.z * up.z);
+  if (len <= 1e-6f)
+    return vec3f(0.f, 0.f, 1.f);
+  return vec3f(up.x / len, up.y / len, up.z / len);
+}
+
+// Rotates a direction authored in a +Y-up coordinate system into the basis
+// selected by the viewer. For +Z-up this maps the ground/horizon to the XY plane.
+vec3f orientYUpDirection(const vec3f &direction, const vec3f &worldUp)
+{
+  const vec3f up = normalizeWorldUp(worldUp);
+  vec3f right(1.f - up.x * up.x, -up.x * up.y, -up.x * up.z);
+  const float rightLength =
+      std::sqrt(right.x * right.x + right.y * right.y + right.z * right.z);
+  if (rightLength <= 1e-6f)
+    right = vec3f(-up.y * up.x, 1.f - up.y * up.y, -up.y * up.z);
+  right = normalizeDirection(right);
+  const vec3f forward(right.y * up.z - right.z * up.y,
+      right.z * up.x - right.x * up.z,
+      right.x * up.y - right.y * up.x);
+
+  return normalizeDirection(vec3f(direction.x * right.x + direction.y * up.x
+          + direction.z * forward.x,
+      direction.x * right.y + direction.y * up.y + direction.z * forward.y,
+      direction.x * right.z + direction.y * up.z + direction.z * forward.z));
 }
 
 // Returns a copy of the string with surrounding whitespace removed.
@@ -130,16 +161,20 @@ bool ensureBrlcadModuleLoaded(std::string &errorOut)
 }
 
 // Builds the default light rig used for scenes that have no explicit authored lighting.
-std::vector<ospray::cpp::Light> makeDefaultLights(const std::string &rendererType)
+std::vector<ospray::cpp::Light> makeDefaultLights(
+    const std::string &rendererType, const vec3f &worldUp)
 {
   // The viewer supplies a minimal house-light rig so imported scenes remain
   // readable even when the source data has no authored lights.
   std::vector<ospray::cpp::Light> lights;
+  const vec3f up = normalizeWorldUp(worldUp);
+  const vec3f sunDirection = orientYUpDirection(kSunLightDirection, up);
 
   if (rendererType == "pathtracer") {
     // Path tracing needs actual illumination from a light or environment.
     ospray::cpp::Light sunSky("sunSky");
-    sunSky.setParam("direction", kSunLightDirection);
+    sunSky.setParam("up", up);
+    sunSky.setParam("direction", sunDirection);
     sunSky.setParam("intensity", 0.08f);
     sunSky.setParam("albedo", 0.2f);
     sunSky.setParam("turbidity", 5.0f);
@@ -148,7 +183,7 @@ std::vector<ospray::cpp::Light> makeDefaultLights(const std::string &rendererTyp
     lights.push_back(sunSky);
 
     ospray::cpp::Light distant("distant");
-    distant.setParam("direction", kSunLightDirection);
+    distant.setParam("direction", sunDirection);
     distant.setParam("intensity", 1.8f);
     distant.setParam("visible", true);
     distant.setParam("angularDiameter", 1.8f);
@@ -161,21 +196,21 @@ std::vector<ospray::cpp::Light> makeDefaultLights(const std::string &rendererTyp
     lights.push_back(ambient);
 
     ospray::cpp::Light key("distant");
-    key.setParam("direction", kSunLightDirection);
+    key.setParam("direction", sunDirection);
     key.setParam("intensity", 2.2f);
     key.setParam("angularDiameter", 2.4f);
     key.commit();
     lights.push_back(key);
 
     ospray::cpp::Light fill("distant");
-    fill.setParam("direction", kFillLightDirection);
+    fill.setParam("direction", orientYUpDirection(kFillLightDirection, up));
     fill.setParam("intensity", 0.65f);
     fill.setParam("angularDiameter", 12.0f);
     fill.commit();
     lights.push_back(fill);
 
     ospray::cpp::Light rim("distant");
-    rim.setParam("direction", kRimLightDirection);
+    rim.setParam("direction", orientYUpDirection(kRimLightDirection, up));
     rim.setParam("intensity", 0.18f);
     rim.setParam("angularDiameter", 6.0f);
     rim.commit();
@@ -815,6 +850,29 @@ void OsprayBackend::setOpaqueBackgroundColor(const vec3f &color)
   }
 }
 
+// Sets the zenith used by procedural environment lighting and rotates the
+// authored light rig into the same world-up basis.
+void OsprayBackend::setWorldUp(const vec3f &up)
+{
+  const vec3f normalized = normalizeWorldUp(up);
+  const vec3f delta = normalized - worldUp_;
+  if (delta.x * delta.x + delta.y * delta.y + delta.z * delta.z < 1e-10f)
+    return;
+
+  cancelInFlightFrame("world_up");
+  worldUp_ = normalized;
+  if (world_.handle()) {
+    applyDefaultLights();
+    world_.commit();
+  }
+  resetAccumulation();
+}
+
+vec3f OsprayBackend::worldUp() const
+{
+  return worldUp_;
+}
+
 // Sets ambient-occlusion sampling for the current rendering mode.
 void OsprayBackend::setAoSamples(int samples)
 {
@@ -1388,7 +1446,7 @@ void OsprayBackend::setProgressiveScale(int scale)
 void OsprayBackend::applyDefaultLights()
 {
   world_.setParam("light",
-      ospray::cpp::CopiedData(makeDefaultLights(currentRenderer_)));
+      ospray::cpp::CopiedData(makeDefaultLights(currentRenderer_, worldUp_)));
 }
 
 // Applies renderer-specific defaults such as AO and sampling parameters.
@@ -1411,7 +1469,8 @@ void OsprayBackend::applyRendererDefaults()
     renderer_.setParam("visibleLights", false);
   } else if (currentRenderer_ == "ao") {
     renderer_.setParam("aoIntensity", 1.0f);
-    renderer_.setParam("lightDirection", normalizeDirection(-kSunLightDirection));
+    renderer_.setParam(
+        "lightDirection", -orientYUpDirection(kSunLightDirection, worldUp_));
     renderer_.setParam("ambientIntensity", 0.18f);
     renderer_.setParam("directionalIntensity", 0.82f);
   }

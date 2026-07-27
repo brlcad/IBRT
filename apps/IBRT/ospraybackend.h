@@ -76,6 +76,8 @@ class OsprayBackend
 
   void setRenderer(const std::string &type);
   void setOpaqueBackgroundColor(const rkcommon::math::vec3f &color);
+  void setWorldUp(const rkcommon::math::vec3f &up);
+  rkcommon::math::vec3f worldUp() const;
   void setAoSamples(int samples);
   void setAoDistance(float distance);
   void setPixelSamples(int samples);
@@ -219,6 +221,7 @@ class OsprayBackend
   std::string lastError_;
   float lastFrameTimeMs_ = 0.0f;
   std::string currentRenderer_ = "scivis";
+  rkcommon::math::vec3f worldUp_{0.f, 0.f, 1.f};
   rkcommon::math::vec3f backgroundColor_{
       ibrt::renderappearance::kViewportBackground.r,
       ibrt::renderappearance::kViewportBackground.g,
