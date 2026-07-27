@@ -86,9 +86,9 @@ void RenderWidget::applyViewAction(
     vec3f move(0.f, 0.f, 0.f);
 
     if (result.axis == Axis::Free) {
-      move = vec3f(-right.x * sx + upCam.x * sy,
-          -right.y * sx + upCam.y * sy,
-          -right.z * sx + upCam.z * sy);
+      move = vec3f(-right.x * sx - upCam.x * sy,
+          -right.y * sx - upCam.y * sy,
+          -right.z * sx - upCam.z * sy);
     } else {
       // The vertical term is subtracted here: this is the one drag path the
       // global Y-flip (controlDelta) missed. Because moving center_ drags the
