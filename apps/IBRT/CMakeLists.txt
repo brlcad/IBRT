@@ -8,6 +8,7 @@ set(CMAKE_AUTORCC ON)
 set(_ibrt_render_core_sources
   ospraybackend.cpp
   ospraybackend.h
+  renderappearance.h
   worker_ipc.cpp
   worker_ipc.h
 )
