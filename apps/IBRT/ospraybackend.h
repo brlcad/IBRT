@@ -13,6 +13,8 @@
 #include <ospray/ospray_cpp.h>
 #include <ospray/ospray_cpp/ext/rkcommon.h>
 
+#include "renderappearance.h"
+
 class OsprayBackend
 {
  public:
@@ -73,6 +75,7 @@ class OsprayBackend
   float getBoundsMaxExtent() const;
 
   void setRenderer(const std::string &type);
+  void setOpaqueBackgroundColor(const rkcommon::math::vec3f &color);
   void setAoSamples(int samples);
   void setAoDistance(float distance);
   void setPixelSamples(int samples);
@@ -216,6 +219,10 @@ class OsprayBackend
   std::string lastError_;
   float lastFrameTimeMs_ = 0.0f;
   std::string currentRenderer_ = "scivis";
+  rkcommon::math::vec3f backgroundColor_{
+      ibrt::renderappearance::kViewportBackground.r,
+      ibrt::renderappearance::kViewportBackground.g,
+      ibrt::renderappearance::kViewportBackground.b};
   VisualizationMode visualizationMode_ = VisualizationMode::Solid;
   uint64_t accumulatedFrames_ = 0;
   static constexpr int kMaxSafeAoSamples = 32;

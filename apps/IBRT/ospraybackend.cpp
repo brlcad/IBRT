@@ -791,6 +791,30 @@ const std::string &OsprayBackend::currentRenderer() const
   return currentRenderer_;
 }
 
+// Sets the background baked into rendered pixels. Keeping it opaque prevents
+// the presentation layer from compositing anti-aliased silhouettes a second time.
+void OsprayBackend::setOpaqueBackgroundColor(const vec3f &color)
+{
+  const vec3f clamped(std::clamp(color.x, 0.0f, 1.0f),
+      std::clamp(color.y, 0.0f, 1.0f),
+      std::clamp(color.z, 0.0f, 1.0f));
+  if (backgroundColor_ == clamped)
+    return;
+
+  cancelInFlightFrame("background");
+  backgroundColor_ = clamped;
+  if (renderer_.handle()) {
+    renderer_.setParam("backgroundColor",
+        vec4f(backgroundColor_.x,
+            backgroundColor_.y,
+            backgroundColor_.z,
+            1.0f));
+    renderer_.commit();
+    resetProgressiveState(false);
+    enqueueLatestRenderRequest("background");
+  }
+}
+
 // Sets ambient-occlusion sampling for the current rendering mode.
 void OsprayBackend::setAoSamples(int samples)
 {
@@ -1370,7 +1394,11 @@ void OsprayBackend::applyDefaultLights()
 // Applies renderer-specific defaults such as AO and sampling parameters.
 void OsprayBackend::applyRendererDefaults()
 {
-  renderer_.setParam("backgroundColor", 1.0f);
+  renderer_.setParam("backgroundColor",
+      vec4f(backgroundColor_.x,
+          backgroundColor_.y,
+          backgroundColor_.z,
+          1.0f));
   renderer_.setParam("pixelSamples", configuredPixelSamplesForCurrentMode());
   renderer_.setParam("aoSamples", configuredAoSamplesForCurrentMode());
   renderer_.setParam("aoDistance", configuredAoDistanceForCurrentMode());
