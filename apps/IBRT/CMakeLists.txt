@@ -290,6 +290,20 @@ ibrt_configure_target(IBRTReferenceRender)
 ibrt_deploy_runtime_bundle(IBRTReferenceRender)
 ibrt_deploy_brl_cad_module(IBRTReferenceRender)
 
+# General-purpose headless still renderer (CLI): model/object, renderer,
+# projection, resolution, camera az/el, frames, background.
+add_executable(IBRTOfflineRender
+  ${_ibrt_render_core_sources}
+  offline_render.cpp
+)
+target_link_libraries(IBRTOfflineRender PRIVATE
+  Qt6::Core
+  Qt6::Gui
+)
+ibrt_configure_target(IBRTOfflineRender)
+ibrt_deploy_runtime_bundle(IBRTOfflineRender)
+ibrt_deploy_brl_cad_module(IBRTOfflineRender)
+
 if(IBRT_BUILD_TESTS AND BUILD_TESTING)
   set(_ibrt_moss_db "${BRLCAD_PREFIX}/share/db/moss.g")
   if(EXISTS "${_ibrt_moss_db}")
@@ -335,4 +349,14 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
   endif()
 
   add_test(NAME IBRTTests COMMAND IBRTTests)
+
+  # Fast, dependency-free unit tests for the standalone utility headers
+  # (ibrt_constants.h, ipc_wire.h, colorramp.h, cameramath.h, imagecompare.h).
+  # Plain C++ with no Qt/OSPRay/BRL-CAD linkage, so it builds and runs anywhere
+  # and gives quick feedback without a full app/toolchain bring-up.
+  add_executable(IBRTUnitTests tests_units.cpp)
+  target_include_directories(IBRTUnitTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_compile_features(IBRTUnitTests PRIVATE cxx_std_20)
+  add_test(NAME IBRTUnitTests COMMAND IBRTUnitTests)
+  set_tests_properties(IBRTUnitTests PROPERTIES TIMEOUT 60 LABELS unit)
 endif()
