@@ -9,6 +9,8 @@
 #include "renderreplaylogic.h"
 #include "renderworkflowlogic.h"
 #include "renderworkerqueuelogic.h"
+#include "cameramath.h"
+#include "ibrt_constants.h"
 
 #include <QMetaObject>
 #include <QPainter>
@@ -22,6 +24,31 @@
 #include <QTimer>
 
 using rkcommon::math::vec3f;
+
+namespace {
+// Bridges between RenderWidget's UI-facing enums and the cameramath templates.
+inline ibrt::cameramath::UpAxis toCamUpAxis(RenderWidget::UpAxis axis)
+{
+  return axis == RenderWidget::UpAxis::Z ? ibrt::cameramath::UpAxis::Z
+                                         : ibrt::cameramath::UpAxis::Y;
+}
+
+inline ibrt::cameramath::StandardView toCamStandardView(RenderWidget::StandardView view)
+{
+  using SV = RenderWidget::StandardView;
+  using CV = ibrt::cameramath::StandardView;
+  switch (view) {
+    case SV::Front: return CV::Front;
+    case SV::Back: return CV::Back;
+    case SV::Left: return CV::Left;
+    case SV::Right: return CV::Right;
+    case SV::Top: return CV::Top;
+    case SV::Bottom: return CV::Bottom;
+    case SV::Iso:
+    default: return CV::Iso;
+  }
+}
+} // namespace
 
 // Initializes widget state, timers, and input tracking for progressive rendering.
 RenderWidget::RenderWidget(QWidget *parent) : QOpenGLWidget(parent)
@@ -169,13 +196,8 @@ void RenderWidget::applyViewAction(
 // Computes a camera distance that frames the scene bounds at the current field of view.
 float RenderWidget::fitDistanceFromBounds(float maxExtent, float fovyDeg)
 {
-  if (maxExtent < 0.001f)
-    maxExtent = 1.0f;
-
-  float halfAngle = 0.5f * fovyDeg * 3.14159265f / 180.0f;
-  halfAngle = std::max(halfAngle, 0.05f);
-
-  return (0.5f * maxExtent) / std::tan(halfAngle) * 1.3f;
+  // 1.3x framing margin so the model does not touch the viewport edges.
+  return ibrt::cameramath::fitDistanceFromBounds(maxExtent, fovyDeg, 1.3f);
 }
 
 // Copies the current orbit camera pose into the fly-camera representation.
@@ -269,13 +291,24 @@ bool RenderWidget::projectWorldToScreen(const vec3f &worldPos, QPointF &screenPo
     return false;
 
   const float aspect = std::max(1.0f, float(width())) / std::max(1.0f, float(height()));
-  const float tanHalfY = std::tan(0.5f * fovy_ * 3.14159265f / 180.0f);
+  const float tanHalfY = std::tan(0.5f * fovy_ * ibrt::kPi / 180.0f);
   const float tanHalfX = tanHalfY * aspect;
   if (tanHalfX <= 0.0f || tanHalfY <= 0.0f)
     return false;
 
-  const float ndcX = viewX / (viewZ * tanHalfX);
-  const float ndcY = viewY / (viewZ * tanHalfY);
+  float ndcX;
+  float ndcY;
+  if (isOrthographic()) {
+    // Parallel projection: screen position is independent of depth. The view
+    // half-height in world units matches the backend's orthographic height
+    // (dist_ * tan(fovy/2)); see OsprayBackend::applyCameraParams.
+    const float halfH = std::max(1e-4f, dist_ * tanHalfY);
+    ndcX = viewX / (halfH * aspect);
+    ndcY = viewY / halfH;
+  } else {
+    ndcX = viewX / (viewZ * tanHalfX);
+    ndcY = viewY / (viewZ * tanHalfY);
+  }
 
   screenPos.setX((ndcX * 0.5f + 0.5f) * float(width()));
   screenPos.setY((1.0f - (ndcY * 0.5f + 0.5f)) * float(height()));
@@ -806,6 +839,27 @@ void RenderWidget::paintGL()
   };
   bool settingsChanged = false;
   const RenderWorkerClient::RenderSettingsState defaultSettings;
+
+  // Denoising is a global toggle (applies in both Automatic and Custom modes).
+  bool denoiseEnabled = usingWorkerRenderPath() ? workerSettings_.denoiseEnabled
+                                                : backend_.denoiseEnabled();
+  if (ImGui::Checkbox("Denoise (OIDN)", &denoiseEnabled)) {
+    if (usingWorkerRenderPath())
+      workerSettings_.denoiseEnabled = denoiseEnabled;
+    else {
+      backend_.setDenoiseEnabled(denoiseEnabled);
+      mirrorBackendSettingsToWorkerState();
+    }
+    settingsChanged = true;
+  }
+
+  // Projection is a global view toggle (independent of Automatic/Custom mode).
+  // setOrthographic() handles the worker/in-process routing and re-render, so we
+  // do not also flag settingsChanged here (that would double-send).
+  bool orthographic = isOrthographic();
+  if (ImGui::Checkbox("Orthographic", &orthographic))
+    setOrthographic(orthographic);
+
   int settingsMode = usingWorkerRenderPath()
       ? workerSettings_.settingsMode
       : (backend_.settingsMode() == OsprayBackend::SettingsMode::Automatic ? 0 : 1);
@@ -1123,6 +1177,24 @@ void RenderWidget::paintGL()
     rebuildSceneAndResetView();
   }
 
+  ImGui::SeparatorText("Standard Views");
+  const auto viewButton = [this](const char *label, StandardView view) {
+    if (ImGui::Button(label))
+      setStandardView(view);
+  };
+  viewButton("Front", StandardView::Front);
+  ImGui::SameLine();
+  viewButton("Back", StandardView::Back);
+  ImGui::SameLine();
+  viewButton("Iso", StandardView::Iso);
+  viewButton("Left", StandardView::Left);
+  ImGui::SameLine();
+  viewButton("Right", StandardView::Right);
+  viewButton("Top", StandardView::Top);
+  ImGui::SameLine();
+  viewButton("Bottom", StandardView::Bottom);
+  ImGui::TextDisabled("Keys: 1 front, 3 right, 7 top (Ctrl=opposite), 0 iso");
+
   const bool orbitMode = inputMode_ == InputMode::Orbit;
   if (ImGui::RadioButton("Orbit", orbitMode)) {
     setInputMode(InputMode::Orbit);
@@ -1162,10 +1234,12 @@ void RenderWidget::paintGL()
     ImGui::BulletText("Alt + Left: X axis");
     ImGui::BulletText("Alt + Shift + Left: Y axis");
     ImGui::BulletText("Alt + Right: Z translate");
+    ImGui::BulletText("Views: 1/3/7 = front/right/top (Ctrl = opposite), 0 = iso");
     ImGui::BulletText("G: Toggle overlay");
   }
   else {
     ImGui::BulletText("Fly: WASD move, LMB look, Tab toggle");
+    ImGui::BulletText("Views: 1/3/7 = front/right/top (Ctrl = opposite), 0 = iso");
     ImGui::BulletText("G: Toggle overlay");
   }
   ImGui::PopTextWrapPos();
@@ -1420,12 +1494,82 @@ void RenderWidget::resetView()
 
   fovy_ = 60.0f;
   dist_ = fitDistanceFromBounds(maxExtent, fovy_);
-  orbitTheta_ = 0.3f;
-  orbitPhi_ = 1.77079633f;
+  orbitTheta_ = ibrt::kInitialOrbitTheta;
+  orbitPhi_ = ibrt::kInitialOrbitPhi;
   syncFlyFromOrbit();
 
   resetAccumulationTargets();
   syncCameraToBackend();
+  renderOnce();
+  update();
+}
+
+// Snaps the orbit camera to a canonical viewpoint (front/back/top/... /iso) and
+// reframes the current scene. Unlike Reset View this preserves the current FOV
+// so a user's chosen "lens" persists across view changes.
+void RenderWidget::setStandardView(StandardView view)
+{
+  if (sceneLoadInProgress_.load())
+    return;
+
+  if (inputMode_ != InputMode::Orbit) {
+    inputMode_ = InputMode::Orbit;
+    emit inputModeChanged(inputMode_);
+  }
+
+  center_ = sceneBoundsCenter();
+
+  float maxExtent = sceneBoundsMaxExtent();
+  if (maxExtent < 0.001f)
+    maxExtent = 1.0f;
+  dist_ = fitDistanceFromBounds(maxExtent, fovy_);
+
+  const auto axis = toCamUpAxis(upAxis_);
+  const auto orientation =
+      ibrt::cameramath::standardView<vec3f>(toCamStandardView(view), axis);
+  // Orbit mode derives its own screen-up (see currentCameraUp), so we only need
+  // the eye direction; the polar clamp keeps top/bottom just off the pole for a
+  // stable basis.
+  ibrt::cameramath::orbitAnglesFromEyeDirection<vec3f>(
+      orientation.eyeDir, axis, orbitTheta_, orbitPhi_);
+  syncFlyFromOrbit();
+
+  resetAccumulationTargets();
+  syncCameraToBackend();
+  renderOnce();
+  update();
+}
+
+// Reports whether the active render path is currently orthographic.
+bool RenderWidget::isOrthographic() const
+{
+  return usingWorkerRenderPath()
+      ? workerSettings_.projectionMode != 0
+      : backend_.projectionMode() == OsprayBackend::ProjectionMode::Orthographic;
+}
+
+// Switches the camera projection on whichever render path is active, keeping the
+// worker settings mirror in sync, and restarts accumulation so the reprojected
+// image converges cleanly. Single entry point for the panel checkbox, the View
+// menu action, and the hotkey.
+void RenderWidget::setOrthographic(bool orthographic)
+{
+  if (isOrthographic() == orthographic)
+    return;
+
+  if (usingWorkerRenderPath()) {
+    workerSettings_.projectionMode = orthographic ? 1 : 0;
+    if (!preemptWorkerControlIfBusy())
+      queueWorkerSettings(workerSettings_);
+  } else {
+    backend_.setProjectionMode(orthographic
+            ? OsprayBackend::ProjectionMode::Orthographic
+            : OsprayBackend::ProjectionMode::Perspective);
+    mirrorBackendSettingsToWorkerState();
+  }
+
+  emit projectionModeChanged(orthographic);
+  resetAccumulationTargets();
   renderOnce();
   update();
 }
@@ -1714,6 +1858,36 @@ void RenderWidget::keyPressEvent(QKeyEvent *e)
 
   if (io.WantCaptureKeyboard)
     return;
+
+  // Standard-view hotkeys (Blender-style numeric layout). Handled here, after
+  // the ImGui keyboard-capture guard, so digits still type into ImGui fields
+  // (e.g. Max Accumulation Frames) when one is focused.
+  if (!e->isAutoRepeat()) {
+    const bool ctrl = e->modifiers().testFlag(Qt::ControlModifier);
+    bool handledView = true;
+    switch (e->key()) {
+      case Qt::Key_1:
+        setStandardView(ctrl ? StandardView::Back : StandardView::Front);
+        break;
+      case Qt::Key_3:
+        setStandardView(ctrl ? StandardView::Left : StandardView::Right);
+        break;
+      case Qt::Key_7:
+        setStandardView(ctrl ? StandardView::Bottom : StandardView::Top);
+        break;
+      case Qt::Key_0:
+        setStandardView(StandardView::Iso);
+        break;
+      case Qt::Key_5:
+        setOrthographic(!isOrthographic());
+        break;
+      default:
+        handledView = false;
+        break;
+    }
+    if (handledView)
+      return;
+  }
 
   if (isMovementKey(e->key()))
     setMovementKeyState(e->key(), true);
@@ -2228,46 +2402,23 @@ void RenderWidget::restartWorkerAndReplayState()
 
 vec3f RenderWidget::worldUp() const
 {
-  return upAxis_ == UpAxis::Z ? vec3f(0.f, 0.f, 1.f) : vec3f(0.f, 1.f, 0.f);
+  return ibrt::cameramath::worldUp<vec3f>(toCamUpAxis(upAxis_));
 }
 
 vec3f RenderWidget::worldForwardReference() const
 {
-  return upAxis_ == UpAxis::Z ? vec3f(0.f, 1.f, 0.f) : vec3f(0.f, 0.f, 1.f);
+  return ibrt::cameramath::worldForwardReference<vec3f>(toCamUpAxis(upAxis_));
 }
 
 vec3f RenderWidget::forwardFromAngles(float yaw, float pitch) const
 {
-  const vec3f up = worldUp();
-  const vec3f forwardRef = worldForwardReference();
-  const vec3f rightRef = normalizeVec(crossVec(forwardRef, up));
-
-  const float cp = std::cos(pitch);
-  const float sp = std::sin(pitch);
-  const float cy = std::cos(yaw);
-  const float sy = std::sin(yaw);
-
-  const vec3f dir(rightRef.x * sy * cp + up.x * sp + forwardRef.x * cy * cp,
-      rightRef.y * sy * cp + up.y * sp + forwardRef.y * cy * cp,
-      rightRef.z * sy * cp + up.z * sp + forwardRef.z * cy * cp);
-  return normalizeVec(dir);
+  return ibrt::cameramath::forwardFromAngles<vec3f>(yaw, pitch, toCamUpAxis(upAxis_));
 }
 
 // Converts a forward direction vector into yaw/pitch angles for fly mode.
 void RenderWidget::anglesFromForward(const vec3f &forward, float &yaw, float &pitch) const
 {
-  const vec3f dir = normalizeVec(forward);
-  const vec3f up = worldUp();
-  const vec3f forwardRef = worldForwardReference();
-  const vec3f rightRef = normalizeVec(crossVec(forwardRef, up));
-
-  const float upDot = std::clamp(
-      dir.x * up.x + dir.y * up.y + dir.z * up.z, -1.f, 1.f);
-  pitch = std::asin(upDot);
-
-  const float fwdComp = dir.x * forwardRef.x + dir.y * forwardRef.y + dir.z * forwardRef.z;
-  const float rightComp = dir.x * rightRef.x + dir.y * rightRef.y + dir.z * rightRef.z;
-  yaw = std::atan2(rightComp, fwdComp);
+  ibrt::cameramath::anglesFromForward<vec3f>(forward, toCamUpAxis(upAxis_), yaw, pitch);
 }
 
 vec3f RenderWidget::projectOntoPlane(const vec3f &v, const vec3f &normal) const
@@ -2278,21 +2429,8 @@ vec3f RenderWidget::projectOntoPlane(const vec3f &v, const vec3f &normal) const
 
 vec3f RenderWidget::orbitEyeDirection() const
 {
-  const vec3f up = worldUp();
-  const vec3f forwardRef = worldForwardReference();
-  const vec3f rightRef = normalizeVec(crossVec(forwardRef, up));
-
-  const float sinPhi = std::sin(orbitPhi_);
-  const float cosPhi = std::cos(orbitPhi_);
-  const float cosTheta = std::cos(orbitTheta_);
-  const float sinTheta = std::sin(orbitTheta_);
-
-  return normalizeVec(vec3f(forwardRef.x * cosTheta * sinPhi
-                                + rightRef.x * sinTheta * sinPhi + up.x * cosPhi,
-      forwardRef.y * cosTheta * sinPhi + rightRef.y * sinTheta * sinPhi
-          + up.y * cosPhi,
-      forwardRef.z * cosTheta * sinPhi + rightRef.z * sinTheta * sinPhi
-          + up.z * cosPhi));
+  return ibrt::cameramath::orbitEyeDirection<vec3f>(
+      orbitTheta_, orbitPhi_, toCamUpAxis(upAxis_));
 }
 
 // Updates orbit angles and distance so the camera eye lands at the requested position.
@@ -2306,24 +2444,11 @@ void RenderWidget::setOrbitFromEyePosition(const vec3f &eye)
     radius = 1e-6f;
   dist_ = radius;
 
-  const vec3f dir = vec3f(offset.x / radius, offset.y / radius, offset.z / radius);
-  const vec3f up = worldUp();
-  const vec3f forwardRef = worldForwardReference();
-  const vec3f rightRef = normalizeVec(crossVec(forwardRef, up));
-
-  const float upDot = std::clamp(
-      dir.x * up.x + dir.y * up.y + dir.z * up.z, -1.f, 1.f);
-  orbitPhi_ = std::acos(upDot);
-  orbitPhi_ = clampf(orbitPhi_, 0.001f, 3.14159265f - 0.001f);
-
-  const float sinPhi = std::sin(orbitPhi_);
-  if (std::fabs(sinPhi) > 1e-6f) {
-    const float forwardComp =
-        dir.x * forwardRef.x + dir.y * forwardRef.y + dir.z * forwardRef.z;
-    const float rightComp =
-        dir.x * rightRef.x + dir.y * rightRef.y + dir.z * rightRef.z;
-    orbitTheta_ = std::atan2(rightComp, forwardComp);
-  }
+  // Passing the current angles in preserves the azimuth at the poles (where it
+  // is indeterminate), matching the previous inline behavior.
+  const vec3f dir(offset.x / radius, offset.y / radius, offset.z / radius);
+  ibrt::cameramath::orbitAnglesFromEyeDirection<vec3f>(
+      dir, toCamUpAxis(upAxis_), orbitTheta_, orbitPhi_);
 }
 
 vec3f RenderWidget::orbitRight() const

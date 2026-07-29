@@ -96,10 +96,15 @@ void mirrorBackendSettingsToWorkerState(const OsprayBackend &backend,
   settings.customFullResAccumulationOnly =
       backend.customFullResAccumulationOnly();
   settings.customWatchdogTimeoutMs = backend.customWatchdogTimeoutMs();
+
   const auto up = backend.worldUp();
   settings.worldUpX = up.x;
   settings.worldUpY = up.y;
   settings.worldUpZ = up.z;
+
+  settings.denoiseEnabled = backend.denoiseEnabled();
+  settings.projectionMode =
+      backend.projectionMode() == OsprayBackend::ProjectionMode::Orthographic ? 1 : 0;
 }
 
 } // namespace ibrt::qualitysettings

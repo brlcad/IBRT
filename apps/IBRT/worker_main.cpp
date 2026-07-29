@@ -332,6 +332,8 @@ int main(int argc, char *argv[])
         uint32_t customFullResAccumulationOnly;
         int32_t customWatchdogTimeoutMs;
         float worldUp[3];
+        uint32_t denoiseEnabled;
+        uint32_t projectionMode;
       } payload{};
       if (!readPodPayload(message.payload, payload)) {
         ibrt::ipc::writeMessage(socketDescriptor,
@@ -366,6 +368,10 @@ int main(int argc, char *argv[])
       backend.setCustomWatchdogTimeoutMs(payload.customWatchdogTimeoutMs);
       backend.setWorldUp(
           rkcommon::math::vec3f(payload.worldUp[0], payload.worldUp[1], payload.worldUp[2]));
+      backend.setDenoiseEnabled(payload.denoiseEnabled != 0);
+      backend.setProjectionMode(payload.projectionMode != 0
+              ? OsprayBackend::ProjectionMode::Orthographic
+              : OsprayBackend::ProjectionMode::Perspective);
       ibrt::ipc::writeMessage(socketDescriptor,
           {ibrt::ipc::MessageType::LoadResult, message.requestId, std::string()});
       break;
@@ -630,6 +636,8 @@ int main(int argc, char *argv[])
         uint32_t customFullResAccumulationOnly;
         int32_t customWatchdogTimeoutMs;
         float worldUp[3];
+        uint32_t denoiseEnabled;
+        uint32_t projectionMode;
       } payload{};
       if (!readPodPayload(message.payload, payload)) {
         ibrt::ipc::writeMessage(pipe,
@@ -664,6 +672,10 @@ int main(int argc, char *argv[])
       backend.setCustomWatchdogTimeoutMs(payload.customWatchdogTimeoutMs);
       backend.setWorldUp(
           rkcommon::math::vec3f(payload.worldUp[0], payload.worldUp[1], payload.worldUp[2]));
+      backend.setDenoiseEnabled(payload.denoiseEnabled != 0);
+      backend.setProjectionMode(payload.projectionMode != 0
+              ? OsprayBackend::ProjectionMode::Orthographic
+              : OsprayBackend::ProjectionMode::Perspective);
       ibrt::ipc::writeMessage(
           pipe, {ibrt::ipc::MessageType::LoadResult, message.requestId, std::string()});
       break;

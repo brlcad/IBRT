@@ -113,6 +113,9 @@ int main(int argc, char **argv)
       backend.setOpaqueBackgroundColor(rkcommon::math::vec3f(referenceBackground.r,
           referenceBackground.g,
           referenceBackground.b));
+      // Keep the reference image a raw accumulated result (denoising would alter
+      // pixels and is unnecessary for a converged 16-frame reference).
+      backend.setDenoiseEnabled(false);
       backend.setSettingsMode(OsprayBackend::SettingsMode::Custom);
       backend.setCustomStartScale(1);
       backend.setCustomAccumulationEnabled(true);

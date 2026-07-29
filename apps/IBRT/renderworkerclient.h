@@ -65,6 +65,9 @@ class RenderWorkerClient : public QObject
     float worldUpX = 0.0f;
     float worldUpY = 0.0f;
     float worldUpZ = 1.0f;
+    bool denoiseEnabled = true;
+    // 0 = perspective, 1 = orthographic (mirrors OsprayBackend::ProjectionMode).
+    int projectionMode = 0;
   };
 
   explicit RenderWorkerClient(QObject *parent = nullptr);

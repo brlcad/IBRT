@@ -14,6 +14,8 @@ extern "C" {
 #undef UNUSED
 #include "ospraybackend.h"
 
+#include "ibrt_constants.h"
+
 #include <chrono>
 #include <algorithm>
 #include <cassert>
@@ -162,7 +164,7 @@ bool ensureBrlcadModuleLoaded(std::string &errorOut)
 
 // Builds the default light rig used for scenes that have no explicit authored lighting.
 std::vector<ospray::cpp::Light> makeDefaultLights(
-    const std::string &rendererType, const vec3f &worldUp)
+    const std::string &rendererType, const vec3f &worldUp, bool environmentVisible)
 {
   // The viewer supplies a minimal house-light rig so imported scenes remain
   // readable even when the source data has no authored lights.
@@ -171,21 +173,24 @@ std::vector<ospray::cpp::Light> makeDefaultLights(
   const vec3f sunDirection = orientYUpDirection(kSunLightDirection, up);
 
   if (rendererType == "pathtracer") {
-    // Path tracing needs actual illumination from a light or environment.
+    // Path tracing needs actual illumination from a light or environment. When
+    // environmentVisible is false the sky/sun still illuminate the scene but are
+    // not drawn behind it, so escaped primary rays show the (white) background
+    // color instead of the sky dome.
     ospray::cpp::Light sunSky("sunSky");
     sunSky.setParam("up", up);
     sunSky.setParam("direction", sunDirection);
     sunSky.setParam("intensity", 0.08f);
     sunSky.setParam("albedo", 0.2f);
     sunSky.setParam("turbidity", 5.0f);
-    sunSky.setParam("visible", true);
+    sunSky.setParam("visible", environmentVisible);
     sunSky.commit();
     lights.push_back(sunSky);
 
     ospray::cpp::Light distant("distant");
     distant.setParam("direction", sunDirection);
     distant.setParam("intensity", 1.8f);
-    distant.setParam("visible", true);
+    distant.setParam("visible", environmentVisible);
     distant.setParam("angularDiameter", 1.8f);
     distant.commit();
     lights.push_back(distant);
@@ -230,6 +235,17 @@ std::vector<ospray::cpp::Light> makeDefaultLights(
 void OsprayBackend::init()
 {
   try {
+    // The denoiser (Intel OIDN) module is optional and shared by every render
+    // path (inline viewer, worker, reference, tests), all of which run through
+    // init() after the device is current.  ospLoadModule is idempotent, so it
+    // is safe to (re)load here; if it is unavailable the backend still works,
+    // only the denoiser toggle has no effect.
+    denoiserModuleAvailable_ = (ospLoadModule("denoiser") == OSP_NO_ERROR);
+    if (!denoiserModuleAvailable_)
+      fprintf(stderr,
+          "OsprayBackend: OSPRay denoiser module unavailable; "
+          "denoising disabled.\n");
+
     // Start from a conservative renderer/camera pair so the widget has
     // something valid to show before any external scene is loaded.
     renderer_ = ospray::cpp::Renderer("scivis");
@@ -272,8 +288,7 @@ void OsprayBackend::resize(int w, int h)
   cameraDirty_ = true;
 
   // Full-resolution accumulation buffer (used once progressive scale reaches 1x).
-  accumFb_ = ospray::cpp::FrameBuffer(
-      fbW_, fbH_, OSP_FB_SRGBA, OSP_FB_COLOR | OSP_FB_ACCUM);
+  rebuildAccumFrameBuffer();
   displayPixels_.assign(size_t(fbW_) * size_t(fbH_), 0u);
   resetProgressiveState(true);
   enqueueLatestRenderRequest("resize");
@@ -298,12 +313,68 @@ void OsprayBackend::setCamera(const vec3f &eye, const vec3f &center, const vec3f
     return;
   }
 
-  camera_.setParam("position", eye);
-  camera_.setParam("direction", center - eye);
-  camera_.setParam("up", up);
-  camera_.setParam("fovy", fovyDeg);
-  cameraDirty_ = true;
+  cameraState_ = PendingCameraState{eye, center, up, fovyDeg};
+  applyCameraParams();
   enqueueLatestRenderRequest("camera");
+}
+
+// Pushes the retained camera pose (cameraState_) onto the OSPRay camera,
+// selecting the parameter appropriate to the active projection: perspective
+// takes a vertical field of view, orthographic takes a world-space viewport
+// height. The orthographic height is chosen as 2 * distance * tan(fovy/2) so the
+// framing matches the perspective view at the pivot plane (distance = |center -
+// eye|), which keeps the image stable when the user toggles projection.
+void OsprayBackend::applyCameraParams()
+{
+  const rkcommon::math::vec3f direction =
+      cameraState_.center - cameraState_.eye;
+  camera_.setParam("position", cameraState_.eye);
+  camera_.setParam("direction", direction);
+  camera_.setParam("up", cameraState_.up);
+
+  if (projectionMode_ == ProjectionMode::Orthographic) {
+    const float distance = std::sqrt(direction.x * direction.x
+        + direction.y * direction.y + direction.z * direction.z);
+    const float halfFovRad = 0.5f * cameraState_.fovyDeg * ibrt::kPi / 180.f;
+    const float height =
+        2.f * std::max(distance, 1e-4f) * std::tan(halfFovRad);
+    camera_.setParam("height", std::max(height, 1e-4f));
+  } else {
+    camera_.setParam("fovy", cameraState_.fovyDeg);
+  }
+  cameraDirty_ = true;
+}
+
+// Recreates camera_ with the OSPRay camera type matching the current projection
+// mode (the type is immutable after construction) and re-applies the pose and
+// aspect ratio. Called between frames from applyPendingState.
+void OsprayBackend::rebuildCameraForProjection()
+{
+  const char *type = projectionMode_ == ProjectionMode::Orthographic
+      ? "orthographic"
+      : "perspective";
+  camera_ = ospray::cpp::Camera(type);
+  camera_.setParam("aspect", float(fbW_) / float(fbH_));
+  applyCameraParams();
+  camera_.commit();
+  cameraDirty_ = false;
+}
+
+// Switches the camera projection. The OSPRay camera type is fixed at
+// construction, so the actual rebuild is deferred to applyPendingState (between
+// frames); this also restarts accumulation since every pixel changes.
+void OsprayBackend::setProjectionMode(ProjectionMode mode)
+{
+  if (projectionMode_ == mode)
+    return;
+  projectionMode_ = mode;
+  pendingProjectionRebuild_ = true;
+  enqueueLatestRenderRequest("projection");
+}
+
+OsprayBackend::ProjectionMode OsprayBackend::projectionMode() const
+{
+  return projectionMode_;
 }
 
 // Clears progressive accumulation so the next render starts from a clean state.
@@ -1148,6 +1219,25 @@ int OsprayBackend::customWatchdogTimeoutMs() const
   return customWatchdogTimeoutMs_;
 }
 
+// Enables or disables OIDN denoising of the full-resolution accumulation pass.
+void OsprayBackend::setDenoiseEnabled(bool enabled)
+{
+  if (denoiseEnabled_ == enabled)
+    return;
+  denoiseEnabled_ = enabled;
+  // The accumulation buffer must be rebuilt to add/remove the guide channels
+  // and denoiser image operation; defer it to applyPendingState so it happens
+  // between frames rather than mid-flight.
+  pendingAccumRebuild_ = true;
+  enqueueLatestRenderRequest("denoiseToggle");
+}
+
+// Reports whether OIDN denoising is currently enabled.
+bool OsprayBackend::denoiseEnabled() const
+{
+  return denoiseEnabled_;
+}
+
 // Updates the backend's notion of whether the user is actively interacting.
 void OsprayBackend::setInteracting(bool interacting)
 {
@@ -1446,7 +1536,26 @@ void OsprayBackend::setProgressiveScale(int scale)
 void OsprayBackend::applyDefaultLights()
 {
   world_.setParam("light",
-      ospray::cpp::CopiedData(makeDefaultLights(currentRenderer_, worldUp_)));
+      ospray::cpp::CopiedData(
+          makeDefaultLights(currentRenderer_, environmentVisible_, worldUp_)));
+}
+
+// Controls whether the path-tracer sky/sun environment is drawn behind the
+// scene. Illumination is unaffected; hiding it yields a clean (white) background
+// for offline stills and presentation renders.
+void OsprayBackend::setEnvironmentVisible(bool visible)
+{
+  if (environmentVisible_ == visible)
+    return;
+  environmentVisible_ = visible;
+  applyDefaultLights();
+  world_.commit();
+  resetAccumulation();
+}
+
+bool OsprayBackend::environmentVisible() const
+{
+  return environmentVisible_;
 }
 
 // Applies renderer-specific defaults such as AO and sampling parameters.
@@ -1550,6 +1659,30 @@ void OsprayBackend::prepareTileFrameBuffer(int tileW, int tileH)
 {
   if (!passFb_.handle() || tileW != passW_ || tileH != passH_)
     passFb_ = ospray::cpp::FrameBuffer(tileW, tileH, OSP_FB_SRGBA, OSP_FB_COLOR);
+}
+
+// (Re)creates the full-resolution accumulation framebuffer.  When denoising is
+// enabled (and the OIDN module loaded) it adds the albedo/normal guide channels
+// and attaches the "denoiser" image operation.  The mapped color output stays
+// OSP_FB_SRGBA - the denoiser runs on OSPRay's internal float buffers, so the
+// rest of the display pipeline is unaffected.  Only the full-res accumulation
+// pass is denoised; the low-res progressive preview passes are left untouched.
+void OsprayBackend::rebuildAccumFrameBuffer()
+{
+  int channels = OSP_FB_COLOR | OSP_FB_ACCUM;
+  const bool useDenoiser = denoiseEnabled_ && denoiserModuleAvailable_;
+  if (useDenoiser)
+    channels |= OSP_FB_ALBEDO | OSP_FB_NORMAL;
+
+  accumFb_ = ospray::cpp::FrameBuffer(fbW_, fbH_, OSP_FB_SRGBA, channels);
+
+  if (useDenoiser) {
+    ospray::cpp::ImageOperation denoiser("denoiser");
+    accumFb_.setParam("imageOperation",
+        ospray::cpp::CopiedData(
+            std::vector<ospray::cpp::ImageOperation>{denoiser}));
+    accumFb_.commit();
+  }
 }
 
 // Starts the next asynchronous OSPRay frame render based on pending state.
@@ -1684,11 +1817,19 @@ void OsprayBackend::applyPendingState()
     fbH_ = std::max(1, pendingResizeH_);
     camera_.setParam("aspect", float(fbW_) / float(fbH_));
     cameraDirty_ = true;
-    accumFb_ = ospray::cpp::FrameBuffer(
-        fbW_, fbH_, OSP_FB_SRGBA, OSP_FB_COLOR | OSP_FB_ACCUM);
+    rebuildAccumFrameBuffer();
     displayPixels_.assign(size_t(fbW_) * size_t(fbH_), 0u);
     resetProgressiveState(true);
     pendingResize_ = false;
+    pendingAccumRebuild_ = false;
+  }
+
+  if (pendingAccumRebuild_) {
+    // The denoiser toggle changed which channels / image operations the
+    // accumulation buffer needs, so rebuild it and restart accumulation.
+    rebuildAccumFrameBuffer();
+    resetProgressiveState(false);
+    pendingAccumRebuild_ = false;
   }
 
   if (pendingRendererType_) {
@@ -1707,12 +1848,17 @@ void OsprayBackend::applyPendingState()
   }
 
   if (pendingCameraState_) {
-    camera_.setParam("position", pendingCameraState_->eye);
-    camera_.setParam("direction", pendingCameraState_->center - pendingCameraState_->eye);
-    camera_.setParam("up", pendingCameraState_->up);
-    camera_.setParam("fovy", pendingCameraState_->fovyDeg);
-    cameraDirty_ = true;
+    cameraState_ = *pendingCameraState_;
+    applyCameraParams();
     pendingCameraState_.reset();
+    pendingResetAccumulation_ = true;
+  }
+
+  if (pendingProjectionRebuild_) {
+    // The camera object must be recreated for the new projection type; do it
+    // here so it never races an in-flight frame.
+    rebuildCameraForProjection();
+    pendingProjectionRebuild_ = false;
     pendingResetAccumulation_ = true;
   }
 

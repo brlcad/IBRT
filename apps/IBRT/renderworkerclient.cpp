@@ -417,6 +417,8 @@ bool RenderWorkerClient::setRenderSettings(const RenderSettingsState &settings)
     uint32_t customFullResAccumulationOnly;
     int32_t customWatchdogTimeoutMs;
     float worldUp[3];
+    uint32_t denoiseEnabled;
+    uint32_t projectionMode;
   } payload{settings.settingsMode,
       settings.automaticPreset,
       settings.automaticTargetFrameTimeMs,
@@ -434,6 +436,8 @@ bool RenderWorkerClient::setRenderSettings(const RenderSettingsState &settings)
       settings.customFullResAccumulationOnly ? 1u : 0u,
       settings.customWatchdogTimeoutMs,
       {settings.worldUpX, settings.worldUpY, settings.worldUpZ}};
+      settings.denoiseEnabled ? 1u : 0u,
+      static_cast<uint32_t>(settings.projectionMode)};
   std::string response;
   return sendRequestBytes(static_cast<uint32_t>(ibrt::ipc::MessageType::SetRenderSettings),
       std::string(reinterpret_cast<const char *>(&payload), sizeof(payload)),

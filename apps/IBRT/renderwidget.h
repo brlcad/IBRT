@@ -52,6 +52,21 @@ class RenderWidget : public QOpenGLWidget, protected QOpenGLFunctions
     Z
   };
 
+  // Canonical camera viewpoints for the standard-view presets. Kept as a plain
+  // RenderWidget-facing enum so callers (menus, hotkeys) do not need the
+  // cameramath template header; it is mapped to ibrt::cameramath::StandardView
+  // in the implementation.
+  enum class StandardView
+  {
+    Front,
+    Back,
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Iso
+  };
+
   // Mouse gestures can act on the camera or on the loaded object transform.
   ManipulationTarget manipulationTarget_ = ManipulationTarget::View;
   explicit RenderWidget(QWidget *parent = nullptr);
@@ -67,6 +82,13 @@ class RenderWidget : public QOpenGLWidget, protected QOpenGLFunctions
   void resetView();
   void rebuildSceneAndResetView();
   void setInputMode(InputMode mode);
+  // Snaps the orbit camera to a canonical viewpoint, reframing the current
+  // scene. Switches to Orbit mode if needed.
+  void setStandardView(StandardView view);
+  // Toggles orthographic vs perspective projection on whichever render path is
+  // active. isOrthographic() reports the current mode.
+  void setOrthographic(bool orthographic);
+  bool isOrthographic() const;
   void setUpAxis(UpAxis axis);
   UpAxis upAxis() const;
   QString currentBrlcadPath() const;
@@ -83,6 +105,7 @@ class RenderWidget : public QOpenGLWidget, protected QOpenGLFunctions
  signals:
   void sceneLoadFinished(bool success, const QString &errorMessage);
   void inputModeChanged(RenderWidget::InputMode mode);
+  void projectionModeChanged(bool orthographic);
 
  protected:
   void initializeGL() override;

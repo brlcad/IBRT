@@ -16,10 +16,12 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHeaderView>
+#include <QKeySequence>
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTimer>
 #include <QStatusBar>
 #include <QTreeWidget>
@@ -257,14 +259,17 @@ void MainWindow::setupMenus()
   QMenu *fileMenu = menuBar()->addMenu("&File");
 
   QAction *openAction = new QAction("&Open Model...", this);
+  openAction->setShortcut(QKeySequence::Open);
   fileMenu->addAction(openAction);
 
   QAction *resetViewAction = new QAction("&Reset View", this);
+  resetViewAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+R")));
   fileMenu->addAction(resetViewAction);
 
   fileMenu->addSeparator();
 
   QAction *exitAction = new QAction("E&xit", this);
+  exitAction->setShortcut(QKeySequence::Quit);
   fileMenu->addAction(exitAction);
 
   QMenu *viewMenu = menuBar()->addMenu("&View");
@@ -300,6 +305,53 @@ void MainWindow::setupMenus()
   viewMenu->addSeparator();
   viewMenu->addAction(yUpAction);
   viewMenu->addAction(zUpAction);
+  viewMenu->addSeparator();
+
+  // Standard axis-aligned viewpoints. The hint text after the tab mirrors the
+  // in-viewport hotkeys (handled in RenderWidget so they never clash with ImGui
+  // text entry); the menu items themselves stay clickable without registering a
+  // conflicting global shortcut.
+  QMenu *standardViewsMenu = viewMenu->addMenu("Standard &Views");
+  struct StandardViewEntry
+  {
+    const char *label;
+    RenderWidget::StandardView view;
+    const char *hint;
+  };
+  const StandardViewEntry standardViewEntries[] = {
+      {"Front", RenderWidget::StandardView::Front, "1"},
+      {"Back", RenderWidget::StandardView::Back, "Ctrl+1"},
+      {"Right", RenderWidget::StandardView::Right, "3"},
+      {"Left", RenderWidget::StandardView::Left, "Ctrl+3"},
+      {"Top", RenderWidget::StandardView::Top, "7"},
+      {"Bottom", RenderWidget::StandardView::Bottom, "Ctrl+7"},
+      {"Isometric", RenderWidget::StandardView::Iso, "0"},
+  };
+  for (const StandardViewEntry &entry : standardViewEntries) {
+    QAction *action = new QAction(
+        QString::fromLatin1(entry.label) + QLatin1Char('\t')
+            + QString::fromLatin1(entry.hint),
+        this);
+    const RenderWidget::StandardView view = entry.view;
+    connect(action, &QAction::triggered, this, [this, view]() {
+      renderWidget_->setStandardView(view);
+    });
+    standardViewsMenu->addAction(action);
+  }
+
+  // Perspective/orthographic toggle. Kept in sync with the in-viewport checkbox
+  // and the '5' hotkey via RenderWidget::projectionModeChanged.
+  QAction *orthographicAction = new QAction("&Orthographic\t5", this);
+  orthographicAction->setCheckable(true);
+  orthographicAction->setChecked(renderWidget_->isOrthographic());
+  viewMenu->addAction(orthographicAction);
+  connect(orthographicAction, &QAction::toggled, this,
+      [this](bool checked) { renderWidget_->setOrthographic(checked); });
+  connect(renderWidget_, &RenderWidget::projectionModeChanged, this,
+      [orthographicAction](bool orthographic) {
+        QSignalBlocker blocker(orthographicAction);
+        orthographicAction->setChecked(orthographic);
+      });
 
   selectBrlcadObjectAction_ = new QAction("Object Hierarchy", this);
   brlcadMenu->addAction(selectBrlcadObjectAction_);

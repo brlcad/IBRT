@@ -42,6 +42,10 @@ class OsprayBackend
   };
   enum class VisualizationMode { Solid, Wireframe };
 
+  // Camera projection. Perspective is the default; Orthographic uses a parallel
+  // projection sized to preserve the perspective framing at the pivot plane.
+  enum class ProjectionMode { Perspective, Orthographic };
+
   OsprayBackend() = default;
 
   // Backend lifecycle and render loop.
@@ -62,6 +66,15 @@ class OsprayBackend
   bool loadBrlcad(const std::string &path, const std::string &topObject = "");
   void setVisualizationMode(VisualizationMode mode);
   VisualizationMode visualizationMode() const;
+  // Switches perspective/orthographic projection. The change is applied between
+  // frames (the OSPRay camera object is recreated with the new type).
+  void setProjectionMode(ProjectionMode mode);
+  ProjectionMode projectionMode() const;
+  // Whether the path-tracer sky/sun environment is drawn behind the scene.
+  // Disabling it leaves illumination intact but shows the background color
+  // (white) where rays escape - useful for clean offline stills.
+  void setEnvironmentVisible(bool visible);
+  bool environmentVisible() const;
   std::vector<std::string> listBrlcadObjects(const std::string &path) const;
   std::vector<BrlcadNode> getBrlcadHierarchy(const std::string &path) const;
   std::vector<BrlcadNode> listBrlcadHierarchy(const std::string &path) const;
@@ -114,6 +127,13 @@ class OsprayBackend
   bool customFullResAccumulationOnly() const;
   void setCustomWatchdogTimeoutMs(int ms);
   int customWatchdogTimeoutMs() const;
+
+  // Denoising is a global toggle (independent of Automatic/Custom quality mode):
+  // when enabled the full-resolution accumulation buffer gains albedo/normal
+  // guide channels and an OIDN denoiser image operation.
+  void setDenoiseEnabled(bool enabled);
+  bool denoiseEnabled() const;
+
   void setInteracting(bool interacting);
 
   const std::string &lastError() const;
@@ -188,6 +208,13 @@ class OsprayBackend
   bool finishCompletedRender();
   void beginNextProgressivePass();
   void prepareTileFrameBuffer(int tileW, int tileH);
+  void rebuildAccumFrameBuffer();
+  // Applies the latest camera pose (cameraState_) to camera_, choosing the
+  // projection-specific parameter (perspective "fovy" vs orthographic "height").
+  void applyCameraParams();
+  // Recreates camera_ with the OSPRay camera type matching projectionMode_ and
+  // re-applies the current pose. Used when the projection mode changes.
+  void rebuildCameraForProjection();
   void upsamplePassToDisplay();
   void applyAoBackoff(bool forcedByWatchdog);
   void applyPendingState();
@@ -259,6 +286,7 @@ class OsprayBackend
   static constexpr int kAccumBlendFrames = 4;
 
   bool watchdogTriggered_ = false;
+  bool denoiserModuleAvailable_ = false;
   bool dynamicModeActive_ = false;
   bool backoffApplied_ = false;
   bool isInteracting_ = false;
@@ -269,11 +297,24 @@ class OsprayBackend
   std::optional<RenderRequest> pendingRenderRequest_;
   std::optional<RenderRequest> activeRenderRequest_;
   std::optional<PendingCameraState> pendingCameraState_;
+  // The most recently applied camera pose, retained so the camera can be
+  // re-parameterized (e.g. on a projection-mode change) without waiting for the
+  // next SetCamera.
+  PendingCameraState cameraState_{};
   std::optional<std::string> pendingRendererType_;
   bool pendingResetAccumulation_ = false;
   int pendingResizeW_ = 1;
   int pendingResizeH_ = 1;
   bool pendingResize_ = false;
+  // Deferred rebuild of accumFb_ (e.g. after the denoiser toggle changes which
+  // channels / image operations the accumulation buffer needs).
+  bool pendingAccumRebuild_ = false;
+  bool denoiseEnabled_ = true;
+  // Deferred recreation of camera_ after a projection-mode change (the OSPRay
+  // camera type is fixed at construction, so switching requires a rebuild).
+  bool pendingProjectionRebuild_ = false;
+  ProjectionMode projectionMode_ = ProjectionMode::Perspective;
+  bool environmentVisible_ = true;
 
   SettingsMode settingsMode_ = SettingsMode::Automatic;
   AutomaticPreset automaticPreset_ = AutomaticPreset::Balanced;
