@@ -68,6 +68,7 @@ More detail lives in [docs/building.md](docs/building.md).
 ## Repository Docs
 
 - [Building](docs/building.md)
+- [Controls and Key Bindings](docs/keybindings.md)
 - [Repo Layout](docs/repo-layout.md)
 - [Performance Notes](docs/perf/ibrt-moss-performance-plan.md)
 - [Release Checklist](docs/releasing.md)
