@@ -435,9 +435,10 @@ bool RenderWorkerClient::setRenderSettings(const RenderSettingsState &settings)
       settings.customLowQualityWhileInteracting ? 1u : 0u,
       settings.customFullResAccumulationOnly ? 1u : 0u,
       settings.customWatchdogTimeoutMs,
-      {settings.worldUpX, settings.worldUpY, settings.worldUpZ}};
+      {settings.worldUpX, settings.worldUpY, settings.worldUpZ},
       settings.denoiseEnabled ? 1u : 0u,
-      static_cast<uint32_t>(settings.projectionMode)};
+      static_cast<uint32_t>(settings.projectionMode)
+  };
   std::string response;
   return sendRequestBytes(static_cast<uint32_t>(ibrt::ipc::MessageType::SetRenderSettings),
       std::string(reinterpret_cast<const char *>(&payload), sizeof(payload)),
