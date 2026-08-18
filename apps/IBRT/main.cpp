@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: MIT
 
 #include <QApplication>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QSurfaceFormat>
+#include <QTimer>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <ospray/ospray.h>
 
@@ -235,8 +238,25 @@ int main(int argc, char *argv[])
   QSurfaceFormat::setDefaultFormat(glFormat);
 #endif
 
-  int ac = argc;
-  const char **av = const_cast<const char **>(argv);
+  // A .g argument comes from the BRL-CAD desktop launcher.  Remove it before
+  // initializing OSPRay, which owns its own command-line parsing, and open it
+  // after the main window is ready.
+  QString startupDatabase;
+  std::vector<const char *> osprayArguments;
+  osprayArguments.reserve(static_cast<size_t>(argc));
+  osprayArguments.push_back(argv[0]);
+  for (int index = 1; index < argc; ++index) {
+    const QString argument = QString::fromLocal8Bit(argv[index]);
+    if (startupDatabase.isEmpty()
+        && QFileInfo(argument).suffix().compare(QStringLiteral("g"), Qt::CaseInsensitive) == 0) {
+      startupDatabase = QFileInfo(argument).absoluteFilePath();
+      continue;
+    }
+    osprayArguments.push_back(argv[index]);
+  }
+
+  int ac = static_cast<int>(osprayArguments.size());
+  const char **av = osprayArguments.data();
 
   const OSPError err = ospInit(&ac, av);
   if (err != OSP_NO_ERROR) {
@@ -275,6 +295,11 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName("BRL-CAD");
     MainWindow w;
     w.show();
+    if (!startupDatabase.isEmpty()) {
+      QTimer::singleShot(0, &w, [&w, startupDatabase]() {
+        w.openGeometryDatabase(startupDatabase);
+      });
+    }
     rc = a.exec();
   }
 
