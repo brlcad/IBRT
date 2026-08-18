@@ -4,6 +4,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QString>
 
 class RenderWidget;
 class QAction;
@@ -15,6 +16,9 @@ class MainWindow : public QMainWindow
   Q_OBJECT
  public:
   explicit MainWindow(QWidget *parent = nullptr);
+
+  // Opens a BRL-CAD database supplied by a desktop file association or launcher.
+  void openGeometryDatabase(const QString &path);
 
  private:
   // The main viewport and interaction surface for scene rendering.

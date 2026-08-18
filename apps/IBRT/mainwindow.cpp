@@ -576,3 +576,9 @@ void MainWindow::chooseAndLoadBrlcadObject(
 
   statusBar()->showMessage(QStringLiteral("Loaded BRL-CAD object: %1").arg(obj), 5000);
 }
+
+// Public entry point used when IBRT receives a .g path from a platform launcher.
+void MainWindow::openGeometryDatabase(const QString &path)
+{
+  chooseAndLoadBrlcadObject(path);
+}
