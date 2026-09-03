@@ -840,6 +840,63 @@ void RenderWidget::paintGL()
   bool settingsChanged = false;
   const RenderWorkerClient::RenderSettingsState defaultSettings;
 
+  ImGui::SeparatorText("Hidden-line Edges");
+  int edgeRenderMode = usingWorkerRenderPath()
+      ? workerSettings_.edgeRenderMode
+      : static_cast<int>(backend_.edgeRenderMode());
+  edgeRenderMode = std::clamp(edgeRenderMode, 0, 2);
+  const char *edgeModeLabels[] = {"Disabled", "Overlay", "Flat fill"};
+  if (ImGui::Combo("Edge mode", &edgeRenderMode, edgeModeLabels, IM_ARRAYSIZE(edgeModeLabels))) {
+    if (usingWorkerRenderPath()) {
+      workerSettings_.edgeRenderMode = edgeRenderMode;
+    } else {
+      backend_.setEdgeRenderMode(
+          static_cast<OsprayBackend::EdgeRenderMode>(edgeRenderMode));
+      mirrorBackendSettingsToWorkerState();
+    }
+    settingsChanged = true;
+  }
+
+  const vec3f currentEdgeColor = usingWorkerRenderPath()
+      ? vec3f(workerSettings_.edgeColorR,
+          workerSettings_.edgeColorG,
+          workerSettings_.edgeColorB)
+      : backend_.edgeColor();
+  float edgeColor[] = {currentEdgeColor.x, currentEdgeColor.y, currentEdgeColor.z};
+  if (ImGui::ColorEdit3("Edge color", edgeColor)) {
+    if (usingWorkerRenderPath()) {
+      workerSettings_.edgeColorR = edgeColor[0];
+      workerSettings_.edgeColorG = edgeColor[1];
+      workerSettings_.edgeColorB = edgeColor[2];
+    } else {
+      backend_.setEdgeColor(vec3f(edgeColor[0], edgeColor[1], edgeColor[2]));
+      mirrorBackendSettingsToWorkerState();
+    }
+    settingsChanged = true;
+  }
+
+  if (edgeRenderMode == 2) {
+    const vec3f currentFlatFillColor = usingWorkerRenderPath()
+        ? vec3f(workerSettings_.flatFillColorR,
+            workerSettings_.flatFillColorG,
+            workerSettings_.flatFillColorB)
+        : backend_.flatFillColor();
+    float flatFillColor[] = {
+        currentFlatFillColor.x, currentFlatFillColor.y, currentFlatFillColor.z};
+    if (ImGui::ColorEdit3("Flat fill color", flatFillColor)) {
+      if (usingWorkerRenderPath()) {
+        workerSettings_.flatFillColorR = flatFillColor[0];
+        workerSettings_.flatFillColorG = flatFillColor[1];
+        workerSettings_.flatFillColorB = flatFillColor[2];
+      } else {
+        backend_.setFlatFillColor(
+            vec3f(flatFillColor[0], flatFillColor[1], flatFillColor[2]));
+        mirrorBackendSettingsToWorkerState();
+      }
+      settingsChanged = true;
+    }
+  }
+
   // Denoising is a global toggle (applies in both Automatic and Custom modes).
   bool denoiseEnabled = usingWorkerRenderPath() ? workerSettings_.denoiseEnabled
                                                 : backend_.denoiseEnabled();

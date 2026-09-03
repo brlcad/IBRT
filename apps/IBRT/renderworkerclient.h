@@ -68,6 +68,14 @@ class RenderWorkerClient : public QObject
     bool denoiseEnabled = true;
     // 0 = perspective, 1 = orthographic (mirrors OsprayBackend::ProjectionMode).
     int projectionMode = 0;
+    // 0 = disabled, 1 = overlay, 2 = flat fill (mirrors EdgeRenderMode).
+    int edgeRenderMode = 0;
+    float edgeColorR = 0.0f;
+    float edgeColorG = 0.0f;
+    float edgeColorB = 0.0f;
+    float flatFillColorR = 0.78f;
+    float flatFillColorG = 0.78f;
+    float flatFillColorB = 0.78f;
   };
 
   explicit RenderWorkerClient(QObject *parent = nullptr);

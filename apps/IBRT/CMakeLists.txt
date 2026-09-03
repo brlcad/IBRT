@@ -8,6 +8,7 @@ set(CMAKE_AUTORCC ON)
 set(_ibrt_render_core_sources
   ospraybackend.cpp
   ospraybackend.h
+  edgerender.h
   renderappearance.h
   worker_ipc.cpp
   worker_ipc.h
@@ -172,21 +173,29 @@ endfunction()
 
 function(ibrt_deploy_runtime_bundle target)
   if(WIN32)
-    if(EXISTS "${IBRT_BEXT_RUNTIME_DIR}")
-      add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-          "${IBRT_BEXT_RUNTIME_DIR}"
-          "$<TARGET_FILE_DIR:${target}>"
-        COMMENT "Copying bext runtime files for ${target}...")
-    endif()
+    set(_deploy_target IBRT_deploy_runtime_bundle)
+    if(NOT TARGET ${_deploy_target})
+      set(_runtime_commands
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>")
+      if(EXISTS "${IBRT_BRLCAD_RUNTIME_DIR}")
+        list(APPEND _runtime_commands
+          COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${IBRT_BRLCAD_RUNTIME_DIR}"
+            "$<TARGET_FILE_DIR:${target}>")
+      endif()
 
-    if(EXISTS "${IBRT_BRLCAD_RUNTIME_DIR}")
-      add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-          "${IBRT_BRLCAD_RUNTIME_DIR}"
-          "$<TARGET_FILE_DIR:${target}>"
-        COMMENT "Copying BRL-CAD runtime files for ${target}...")
+      if(EXISTS "${IBRT_BEXT_RUNTIME_DIR}")
+        list(APPEND _runtime_commands
+          COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${IBRT_BEXT_RUNTIME_DIR}"
+            "$<TARGET_FILE_DIR:${target}>")
+      endif()
+
+      add_custom_target(${_deploy_target}
+        ${_runtime_commands}
+        COMMENT "Deploying Windows runtime files...")
     endif()
+    add_dependencies(${target} ${_deploy_target})
   elseif(UNIX)
     foreach(_lib IN LISTS _ibrt_local_ospray_runtime_libs)
       get_filename_component(_lib_name "${_lib}" NAME)
@@ -341,6 +350,10 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
       find_program(WINDEPLOYQT_EXECUTABLE
         NAMES windeployqt windeployqt.exe
         HINTS "${BEXT_INSTALL_DIR}/bin")
+    endif()
+
+    if(TARGET IBRT)
+      add_dependencies(IBRTTests IBRT)
     endif()
 
     add_custom_command(TARGET IBRTTests POST_BUILD

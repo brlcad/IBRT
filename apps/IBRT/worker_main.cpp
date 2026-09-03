@@ -11,6 +11,8 @@
 #include "ospraybackend.h"
 #include "worker_ipc.h"
 
+#include "ipc_wire.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #elif defined(__linux__) || defined(__APPLE__)
@@ -74,6 +76,48 @@ bool readPodPayload(const std::string &payload, T &out)
     return false;
   std::memcpy(&out, payload.data(), sizeof(T));
   return true;
+}
+
+void applyRenderSettings(OsprayBackend &backend,
+    const ibrt::ipc::wire::SettingsPayload &payload)
+{
+  backend.setSettingsMode(payload.settingsMode == 0
+          ? OsprayBackend::SettingsMode::Automatic
+          : OsprayBackend::SettingsMode::Custom);
+  backend.setAutomaticPreset(payload.automaticPreset == 0
+          ? OsprayBackend::AutomaticPreset::Fast
+          : (payload.automaticPreset == 1 ? OsprayBackend::AutomaticPreset::Balanced
+                                          : OsprayBackend::AutomaticPreset::Quality));
+  backend.setAutomaticTargetFrameTimeMs(payload.automaticTargetFrameTimeMs);
+  backend.setAutomaticAccumulationEnabled(payload.automaticAccumulationEnabled != 0);
+  backend.setCustomStartScale(payload.customStartScale);
+  backend.setCustomTargetFrameTimeMs(payload.customTargetFrameTimeMs);
+  backend.setAoSamples(payload.customAoSamples);
+  backend.setAoDistance(payload.customAoDistance);
+  backend.setPixelSamples(payload.customPixelSamples);
+  backend.setMaxPathLength(payload.customMaxPathLength);
+  backend.setRoulettePathLength(payload.customRoulettePathLength);
+  backend.setCustomAccumulationEnabled(payload.customAccumulationEnabled != 0);
+  backend.setCustomMaxAccumulationFrames(payload.customMaxAccumulationFrames);
+  backend.setCustomLowQualityWhileInteracting(
+      payload.customLowQualityWhileInteracting != 0);
+  backend.setCustomFullResAccumulationOnly(
+      payload.customFullResAccumulationOnly != 0);
+  backend.setCustomWatchdogTimeoutMs(payload.customWatchdogTimeoutMs);
+  backend.setWorldUp(
+      rkcommon::math::vec3f(payload.worldUp[0], payload.worldUp[1], payload.worldUp[2]));
+  backend.setDenoiseEnabled(payload.denoiseEnabled != 0);
+  backend.setProjectionMode(payload.projectionMode != 0
+          ? OsprayBackend::ProjectionMode::Orthographic
+          : OsprayBackend::ProjectionMode::Perspective);
+  backend.setEdgeRenderMode(payload.edgeRenderMode == 1
+          ? OsprayBackend::EdgeRenderMode::Overlay
+          : (payload.edgeRenderMode == 2 ? OsprayBackend::EdgeRenderMode::FlatFill
+                                         : OsprayBackend::EdgeRenderMode::Disabled));
+  backend.setEdgeColor(
+      rkcommon::math::vec3f(payload.edgeColor[0], payload.edgeColor[1], payload.edgeColor[2]));
+  backend.setFlatFillColor(rkcommon::math::vec3f(
+      payload.flatFillColor[0], payload.flatFillColor[1], payload.flatFillColor[2]));
 }
 
 } // namespace
@@ -313,28 +357,7 @@ int main(int argc, char *argv[])
       break;
 
     case ibrt::ipc::MessageType::SetRenderSettings: {
-      struct SettingsPayload
-      {
-        int32_t settingsMode;
-        int32_t automaticPreset;
-        float automaticTargetFrameTimeMs;
-        uint32_t automaticAccumulationEnabled;
-        int32_t customStartScale;
-        float customTargetFrameTimeMs;
-        int32_t customAoSamples;
-        float customAoDistance;
-        int32_t customPixelSamples;
-        int32_t customMaxPathLength;
-        int32_t customRoulettePathLength;
-        uint32_t customAccumulationEnabled;
-        int32_t customMaxAccumulationFrames;
-        uint32_t customLowQualityWhileInteracting;
-        uint32_t customFullResAccumulationOnly;
-        int32_t customWatchdogTimeoutMs;
-        float worldUp[3];
-        uint32_t denoiseEnabled;
-        uint32_t projectionMode;
-      } payload{};
+      ibrt::ipc::wire::SettingsPayload payload{};
       if (!readPodPayload(message.payload, payload)) {
         ibrt::ipc::writeMessage(socketDescriptor,
             {ibrt::ipc::MessageType::Error,
@@ -343,35 +366,7 @@ int main(int argc, char *argv[])
         break;
       }
 
-      backend.setSettingsMode(payload.settingsMode == 0
-              ? OsprayBackend::SettingsMode::Automatic
-              : OsprayBackend::SettingsMode::Custom);
-      backend.setAutomaticPreset(payload.automaticPreset == 0
-              ? OsprayBackend::AutomaticPreset::Fast
-              : (payload.automaticPreset == 1 ? OsprayBackend::AutomaticPreset::Balanced
-                                              : OsprayBackend::AutomaticPreset::Quality));
-      backend.setAutomaticTargetFrameTimeMs(payload.automaticTargetFrameTimeMs);
-      backend.setAutomaticAccumulationEnabled(payload.automaticAccumulationEnabled != 0);
-      backend.setCustomStartScale(payload.customStartScale);
-      backend.setCustomTargetFrameTimeMs(payload.customTargetFrameTimeMs);
-      backend.setAoSamples(payload.customAoSamples);
-      backend.setAoDistance(payload.customAoDistance);
-      backend.setPixelSamples(payload.customPixelSamples);
-      backend.setMaxPathLength(payload.customMaxPathLength);
-      backend.setRoulettePathLength(payload.customRoulettePathLength);
-      backend.setCustomAccumulationEnabled(payload.customAccumulationEnabled != 0);
-      backend.setCustomMaxAccumulationFrames(payload.customMaxAccumulationFrames);
-      backend.setCustomLowQualityWhileInteracting(
-          payload.customLowQualityWhileInteracting != 0);
-      backend.setCustomFullResAccumulationOnly(
-          payload.customFullResAccumulationOnly != 0);
-      backend.setCustomWatchdogTimeoutMs(payload.customWatchdogTimeoutMs);
-      backend.setWorldUp(
-          rkcommon::math::vec3f(payload.worldUp[0], payload.worldUp[1], payload.worldUp[2]));
-      backend.setDenoiseEnabled(payload.denoiseEnabled != 0);
-      backend.setProjectionMode(payload.projectionMode != 0
-              ? OsprayBackend::ProjectionMode::Orthographic
-              : OsprayBackend::ProjectionMode::Perspective);
+      applyRenderSettings(backend, payload);
       ibrt::ipc::writeMessage(socketDescriptor,
           {ibrt::ipc::MessageType::LoadResult, message.requestId, std::string()});
       break;
@@ -617,28 +612,7 @@ int main(int argc, char *argv[])
       break;
 
     case ibrt::ipc::MessageType::SetRenderSettings: {
-      struct SettingsPayload
-      {
-        int32_t settingsMode;
-        int32_t automaticPreset;
-        float automaticTargetFrameTimeMs;
-        uint32_t automaticAccumulationEnabled;
-        int32_t customStartScale;
-        float customTargetFrameTimeMs;
-        int32_t customAoSamples;
-        float customAoDistance;
-        int32_t customPixelSamples;
-        int32_t customMaxPathLength;
-        int32_t customRoulettePathLength;
-        uint32_t customAccumulationEnabled;
-        int32_t customMaxAccumulationFrames;
-        uint32_t customLowQualityWhileInteracting;
-        uint32_t customFullResAccumulationOnly;
-        int32_t customWatchdogTimeoutMs;
-        float worldUp[3];
-        uint32_t denoiseEnabled;
-        uint32_t projectionMode;
-      } payload{};
+      ibrt::ipc::wire::SettingsPayload payload{};
       if (!readPodPayload(message.payload, payload)) {
         ibrt::ipc::writeMessage(pipe,
             {ibrt::ipc::MessageType::Error,
@@ -647,35 +621,7 @@ int main(int argc, char *argv[])
         break;
       }
 
-      backend.setSettingsMode(payload.settingsMode == 0
-              ? OsprayBackend::SettingsMode::Automatic
-              : OsprayBackend::SettingsMode::Custom);
-      backend.setAutomaticPreset(payload.automaticPreset == 0
-              ? OsprayBackend::AutomaticPreset::Fast
-              : (payload.automaticPreset == 1 ? OsprayBackend::AutomaticPreset::Balanced
-                                              : OsprayBackend::AutomaticPreset::Quality));
-      backend.setAutomaticTargetFrameTimeMs(payload.automaticTargetFrameTimeMs);
-      backend.setAutomaticAccumulationEnabled(payload.automaticAccumulationEnabled != 0);
-      backend.setCustomStartScale(payload.customStartScale);
-      backend.setCustomTargetFrameTimeMs(payload.customTargetFrameTimeMs);
-      backend.setAoSamples(payload.customAoSamples);
-      backend.setAoDistance(payload.customAoDistance);
-      backend.setPixelSamples(payload.customPixelSamples);
-      backend.setMaxPathLength(payload.customMaxPathLength);
-      backend.setRoulettePathLength(payload.customRoulettePathLength);
-      backend.setCustomAccumulationEnabled(payload.customAccumulationEnabled != 0);
-      backend.setCustomMaxAccumulationFrames(payload.customMaxAccumulationFrames);
-      backend.setCustomLowQualityWhileInteracting(
-          payload.customLowQualityWhileInteracting != 0);
-      backend.setCustomFullResAccumulationOnly(
-          payload.customFullResAccumulationOnly != 0);
-      backend.setCustomWatchdogTimeoutMs(payload.customWatchdogTimeoutMs);
-      backend.setWorldUp(
-          rkcommon::math::vec3f(payload.worldUp[0], payload.worldUp[1], payload.worldUp[2]));
-      backend.setDenoiseEnabled(payload.denoiseEnabled != 0);
-      backend.setProjectionMode(payload.projectionMode != 0
-              ? OsprayBackend::ProjectionMode::Orthographic
-              : OsprayBackend::ProjectionMode::Perspective);
+      applyRenderSettings(backend, payload);
       ibrt::ipc::writeMessage(
           pipe, {ibrt::ipc::MessageType::LoadResult, message.requestId, std::string()});
       break;

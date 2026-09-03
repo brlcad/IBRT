@@ -16,6 +16,9 @@
 //     --frames N                          (default: 64 accumulation frames)
 //     --pixel-samples N                   (default: 4)
 //     --up z|y                            (default: z)
+//     --edge-mode off|overlay|flat         (default: off)
+//     --edge-color R,G,B|#RRGGBB           (default: black)
+//     --flat-fill-color R,G,B|#RRGGBB      (default: neutral gray)
 //     --show-sky                          (draw the environment; default hides it
 //                                          for a clean white background)
 //
@@ -58,6 +61,10 @@ struct Options
   int pixelSamples = 4;
   cameramath::UpAxis up = cameramath::UpAxis::Z;
   bool showSky = false;
+  OsprayBackend::EdgeRenderMode edgeRenderMode =
+      OsprayBackend::EdgeRenderMode::Disabled;
+  rkcommon::math::vec3f edgeColor{0.0f, 0.0f, 0.0f};
+  rkcommon::math::vec3f flatFillColor{0.78f, 0.78f, 0.78f};
 };
 
 void ensureOsprayLoadModule(const char *moduleName)
@@ -79,6 +86,66 @@ bool wantsArg(const char *a, const char *name)
   return std::strcmp(a, name) == 0;
 }
 
+bool parseColor(const char *value, rkcommon::math::vec3f &color)
+{
+  if (!value)
+    return false;
+
+  if (value[0] == '#' && std::strlen(value) == 7) {
+    char *end = nullptr;
+    const unsigned long packed = std::strtoul(value + 1, &end, 16);
+    if (!end || *end != '\0' || packed > 0xfffffful)
+      return false;
+    color = rkcommon::math::vec3f(float((packed >> 16) & 0xffu) / 255.0f,
+        float((packed >> 8) & 0xffu) / 255.0f,
+        float(packed & 0xffu) / 255.0f);
+    return true;
+  }
+
+  float red = 0.0f;
+  float green = 0.0f;
+  float blue = 0.0f;
+  char extra = '\0';
+  if (std::sscanf(value, "%f,%f,%f%c", &red, &green, &blue, &extra) != 3
+      || !std::isfinite(red) || !std::isfinite(green) || !std::isfinite(blue)) {
+    return false;
+  }
+
+  color = rkcommon::math::vec3f(
+      std::clamp(red, 0.0f, 1.0f), std::clamp(green, 0.0f, 1.0f), std::clamp(blue, 0.0f, 1.0f));
+  return true;
+}
+
+bool parseEdgeMode(const char *value, OsprayBackend::EdgeRenderMode &mode)
+{
+  if (wantsArg(value, "off") || wantsArg(value, "disabled")) {
+    mode = OsprayBackend::EdgeRenderMode::Disabled;
+    return true;
+  }
+  if (wantsArg(value, "overlay")) {
+    mode = OsprayBackend::EdgeRenderMode::Overlay;
+    return true;
+  }
+  if (wantsArg(value, "flat") || wantsArg(value, "flat-fill")) {
+    mode = OsprayBackend::EdgeRenderMode::FlatFill;
+    return true;
+  }
+  return false;
+}
+
+const char *edgeModeName(OsprayBackend::EdgeRenderMode mode)
+{
+  switch (mode) {
+  case OsprayBackend::EdgeRenderMode::Overlay:
+    return "overlay";
+  case OsprayBackend::EdgeRenderMode::FlatFill:
+    return "flat";
+  case OsprayBackend::EdgeRenderMode::Disabled:
+  default:
+    return "off";
+  }
+}
+
 bool parseArgs(int argc, char **argv, Options &opt)
 {
   std::vector<std::string> positional;
@@ -94,6 +161,24 @@ bool parseArgs(int argc, char **argv, Options &opt)
 
     if (a[0] != '-') {
       positional.push_back(a);
+    } else if (wantsArg(a, "--edge-mode")) {
+      const char *v = next(a);
+      if (!v || !parseEdgeMode(v, opt.edgeRenderMode)) {
+        std::fprintf(stderr, "Invalid edge mode. Use off, overlay, or flat.\n");
+        return false;
+      }
+    } else if (wantsArg(a, "--edge-color")) {
+      const char *v = next(a);
+      if (!v || !parseColor(v, opt.edgeColor)) {
+        std::fprintf(stderr, "Invalid edge color. Use R,G,B or #RRGGBB.\n");
+        return false;
+      }
+    } else if (wantsArg(a, "--flat-fill-color") || wantsArg(a, "--flat-color")) {
+      const char *v = next(a);
+      if (!v || !parseColor(v, opt.flatFillColor)) {
+        std::fprintf(stderr, "Invalid flat fill color. Use R,G,B or #RRGGBB.\n");
+        return false;
+      }
     } else if (wantsArg(a, "--renderer")) {
       const char *v = next(a);
       if (!v)
@@ -271,6 +356,9 @@ int main(int argc, char **argv)
       backend.setProjectionMode(opt.orthographic
               ? OsprayBackend::ProjectionMode::Orthographic
               : OsprayBackend::ProjectionMode::Perspective);
+      backend.setEdgeRenderMode(opt.edgeRenderMode);
+      backend.setEdgeColor(opt.edgeColor);
+      backend.setFlatFillColor(opt.flatFillColor);
       // White background: keep the (default white) backgroundColor and hide the
       // environment so escaped rays are not tinted by the sky dome.
       backend.setEnvironmentVisible(opt.showSky);
@@ -298,11 +386,11 @@ int main(int argc, char **argv)
         backend.resetAccumulation();
 
         std::printf(
-            "Rendering %s (%s) %dx%d %s %s az/el=%.0f/%.0f frames=%d ...\n",
+            "Rendering %s (%s) %dx%d %s %s edge=%s az/el=%.0f/%.0f frames=%d ...\n",
             opt.db.c_str(), object.c_str(), opt.width, opt.height,
             opt.renderer.c_str(),
-            opt.orthographic ? "orthographic" : "perspective", opt.az, opt.el,
-            opt.frames);
+            opt.orthographic ? "orthographic" : "perspective",
+            edgeModeName(opt.edgeRenderMode), opt.az, opt.el, opt.frames);
 
         if (!renderUntilReady(backend, uint64_t(opt.frames))) {
           std::fprintf(stderr, "Render timed out.\n");

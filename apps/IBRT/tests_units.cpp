@@ -15,9 +15,12 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
+#include <vector>
 
 #include "cameramath.h"
 #include "colorramp.h"
+#include "edgerender.h"
 #include "ibrt_constants.h"
 #include "imagecompare.h"
 #include "ipc_wire.h"
@@ -203,6 +206,73 @@ void testImageCompare()
   check(!imagesMatch(nullptr, b, w, h), "null buffer does not match");
 }
 
+void testEdgeRendering()
+{
+  using namespace ibrt::edgerender;
+
+  constexpr int width = 5;
+  constexpr int height = 5;
+  constexpr std::uint32_t baseColor = 0xff332211u;
+  const std::size_t pixelCount = std::size_t(width) * std::size_t(height);
+  std::vector<float> depths(pixelCount, std::numeric_limits<float>::infinity());
+  std::vector<float> normals(pixelCount * 3, 0.0f);
+  std::vector<std::uint32_t> objectIds(pixelCount, 0u);
+
+  for (int y = 1; y <= 3; ++y) {
+    for (int x = 1; x <= 3; ++x) {
+      const std::size_t index = std::size_t(y) * std::size_t(width) + std::size_t(x);
+      normals[index * 3 + 2] = 1.0f;
+      objectIds[index] = 1u;
+    }
+  }
+
+  const Color edgeColor{1.0f, 0.0f, 0.0f};
+  const Color fillColor{0.0f, 1.0f, 0.0f};
+  std::vector<std::uint32_t> overlayPixels(pixelCount, baseColor);
+  composite(overlayPixels.data(),
+      depths.data(),
+      normals.data(),
+      3,
+      objectIds.data(),
+      width,
+      height,
+      Mode::Overlay,
+      edgeColor,
+      fillColor);
+
+  check(overlayPixels[std::size_t(2) * width + 2] == baseColor,
+      "overlay preserves non-edge object pixels");
+  check(overlayPixels[std::size_t(2) * width + 1] == packSrgba(edgeColor),
+      "overlay colors visible silhouette pixels");
+  check(overlayPixels[0] == baseColor, "overlay preserves background pixels");
+
+  std::vector<std::uint32_t> flatPixels(pixelCount, baseColor);
+  composite(flatPixels.data(),
+      depths.data(),
+      normals.data(),
+      3,
+      objectIds.data(),
+      width,
+      height,
+      Mode::FlatFill,
+      edgeColor,
+      fillColor);
+
+  check(flatPixels[std::size_t(2) * width + 2] == packSrgba(fillColor),
+      "flat fill colors non-edge object pixels");
+  check(flatPixels[std::size_t(2) * width + 1] == packSrgba(edgeColor),
+      "flat fill retains edge color");
+  check(flatPixels[0] == baseColor, "flat fill preserves background pixels");
+
+  const float idDepths[] = {1.0f, 1.0f, 1.0f};
+  const float idNormals[] = {0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f};
+  const std::uint32_t idObjects[] = {7u, 8u, 8u};
+  check(isEdgePixel(idDepths, idNormals, 3, idObjects, 3, 1, 0, 0),
+      "object ID transition is an edge");
+  check(!isEdgePixel(idDepths, idNormals, 3, idObjects, 3, 1, 2, 0),
+      "matching object ID is not an edge");
+}
+
 } // namespace
 
 int main()
@@ -211,6 +281,7 @@ int main()
   testColorRamp();
   testCameraMath();
   testImageCompare();
+  testEdgeRendering();
 
   std::printf("IBRTUnitTests: %d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

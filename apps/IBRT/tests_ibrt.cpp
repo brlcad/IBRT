@@ -25,6 +25,7 @@
 #include <ospray/ospray.h>
 
 #include "interactioncontroller.h"
+#include "edgerender.h"
 #include "ospraybackend.h"
 #include "qualitysettings.h"
 #include "renderreplaylogic.h"
@@ -68,6 +69,7 @@ class IbrtTests : public QObject
   void integrationBackendValidBrlcadSceneDoesNotUseDefaultBounds();
   void integrationBackendRenderProducesNonEmptyFrame();
   void integrationBackendAccumulatedSilhouettesStayOpaque();
+  void integrationBackendHiddenLineEdgeModesRender();
   void integrationBackendHeadlessMossRenderWritesReferenceImages();
   void integrationBackendRenderProducesConsistentFrameForSameInput();
   void integrationBackendGeometryChangeAffectsRenderedOutput();
@@ -75,6 +77,7 @@ class IbrtTests : public QObject
   void integrationWorkerLoadBrlcadProducesNonEmptyFrame();
   void integrationWorkerLoadBrlcadPropagatesValidBounds();
   void integrationWorkerFrameMatchesRequestedViewportSize();
+  void integrationWorkerHiddenLineEdgeModesRender();
   void systemLoadRenderInteractCycle();
   void systemSwitchTopObjectChangesBounds();
   void systemSwitchRendererChangesFrame();
@@ -383,6 +386,20 @@ bool imageHasNonZeroPixel(const QImage &image)
         reinterpret_cast<const uint32_t *>(argbImage.constScanLine(y));
     for (int x = 0; x < argbImage.width(); ++x) {
       if (row[x] != 0u)
+        return true;
+    }
+  }
+  return false;
+}
+
+bool imageContainsRgb(const QImage &image, unsigned char red, unsigned char green, unsigned char blue)
+{
+  const QImage rgbaImage = image.convertToFormat(QImage::Format_RGBA8888);
+  for (int y = 0; y < rgbaImage.height(); ++y) {
+    const auto *row = rgbaImage.constScanLine(y);
+    for (int x = 0; x < rgbaImage.width(); ++x) {
+      const auto *pixel = row + x * 4;
+      if (pixel[0] == red && pixel[1] == green && pixel[2] == blue)
         return true;
     }
   }
@@ -745,6 +762,51 @@ void IbrtTests::integrationBackendAccumulatedSilhouettesStayOpaque()
   QVERIFY2(allPixelsOpaque,
       "Accumulated surface coverage must be composited against the opaque "
       "viewport background before presentation.");
+}
+
+void IbrtTests::integrationBackendHiddenLineEdgeModesRender()
+{
+  OsprayBackend backend;
+  backend.init();
+  backend.setSettingsMode(OsprayBackend::SettingsMode::Custom);
+  backend.setCustomStartScale(1);
+  backend.setCustomAccumulationEnabled(false);
+  backend.setCustomFullResAccumulationOnly(false);
+  backend.setAoSamples(0);
+  backend.setPixelSamples(1);
+  backend.resize(96, 96);
+  frameCameraToBounds(backend);
+
+  const rkcommon::math::vec3f edgeColor(0.95f, 0.05f, 0.80f);
+  const rkcommon::math::vec3f flatFillColor(0.10f, 0.72f, 0.28f);
+  const uint32_t packedEdgeColor =
+      ibrt::edgerender::packSrgba({edgeColor.x, edgeColor.y, edgeColor.z});
+  const uint32_t packedFlatFillColor =
+      ibrt::edgerender::packSrgba({flatFillColor.x, flatFillColor.y, flatFillColor.z});
+
+  backend.setEdgeRenderMode(OsprayBackend::EdgeRenderMode::Overlay);
+  backend.setEdgeColor(edgeColor);
+  backend.resetAccumulation();
+  const auto overlayPixels = renderUntilImageReady(backend, 300);
+  QVERIFY(!overlayPixels.empty());
+  QVERIFY(std::find(overlayPixels.begin(), overlayPixels.end(), packedEdgeColor)
+      != overlayPixels.end());
+  QVERIFY(std::any_of(overlayPixels.begin(), overlayPixels.end(),
+      [packedEdgeColor](uint32_t pixel) { return pixel != packedEdgeColor; }));
+
+  backend.setEdgeRenderMode(OsprayBackend::EdgeRenderMode::FlatFill);
+  backend.setFlatFillColor(flatFillColor);
+  backend.resetAccumulation();
+  const auto flatPixels = renderUntilImageReady(backend, 300);
+  QVERIFY(!flatPixels.empty());
+  QVERIFY(std::find(flatPixels.begin(), flatPixels.end(), packedEdgeColor)
+      != flatPixels.end());
+  QVERIFY(std::find(flatPixels.begin(), flatPixels.end(), packedFlatFillColor)
+      != flatPixels.end());
+  QVERIFY(std::any_of(flatPixels.begin(), flatPixels.end(),
+      [packedEdgeColor, packedFlatFillColor](uint32_t pixel) {
+        return pixel != packedEdgeColor && pixel != packedFlatFillColor;
+      }));
 }
 
 void IbrtTests::integrationBackendHeadlessMossRenderWritesReferenceImages()
@@ -1258,6 +1320,9 @@ void IbrtTests::unitQualitySettingsMirrorBackendToWorkerState()
   backend.setCustomFullResAccumulationOnly(false);
   backend.setCustomWatchdogTimeoutMs(2222);
   backend.setWorldUp(rkcommon::math::vec3f(0.f, 1.f, 0.f));
+  backend.setEdgeRenderMode(OsprayBackend::EdgeRenderMode::FlatFill);
+  backend.setEdgeColor(rkcommon::math::vec3f(0.2f, 0.3f, 0.4f));
+  backend.setFlatFillColor(rkcommon::math::vec3f(0.5f, 0.6f, 0.7f));
 
   RenderWorkerClient::RenderSettingsState settings;
   ibrt::qualitysettings::mirrorBackendSettingsToWorkerState(backend, settings);
@@ -1281,6 +1346,13 @@ void IbrtTests::unitQualitySettingsMirrorBackendToWorkerState()
   QCOMPARE(settings.worldUpX, 0.0f);
   QCOMPARE(settings.worldUpY, 1.0f);
   QCOMPARE(settings.worldUpZ, 0.0f);
+  QCOMPARE(settings.edgeRenderMode, 2);
+  QCOMPARE(settings.edgeColorR, 0.2f);
+  QCOMPARE(settings.edgeColorG, 0.3f);
+  QCOMPARE(settings.edgeColorB, 0.4f);
+  QCOMPARE(settings.flatFillColorR, 0.5f);
+  QCOMPARE(settings.flatFillColorG, 0.6f);
+  QCOMPARE(settings.flatFillColorB, 0.7f);
 }
 
 void IbrtTests::unitInteractionControllerClassifiesDocumentedChords()
@@ -1783,6 +1855,77 @@ void IbrtTests::integrationWorkerFrameMatchesRequestedViewportSize()
   QVERIFY(!frame.isNull());
   QCOMPARE(frame.width(), 96);
   QCOMPARE(frame.height(), 72);
+  client.stop();
+}
+
+void IbrtTests::integrationWorkerHiddenLineEdgeModesRender()
+{
+  if (!RenderWorkerClient::isSupported())
+    QSKIP("Render worker integration test is unsupported on this platform.");
+
+  const QString workerPath =
+      RenderWorkerClient::defaultWorkerPath(QCoreApplication::applicationDirPath());
+  if (!QFileInfo::exists(workerPath))
+    QSKIP("Render worker executable is not present next to the test binary.");
+
+  QTemporaryDir tempDir;
+  QVERIFY(tempDir.isValid());
+  QFile objFile(tempDir.filePath(QStringLiteral("edge-test.obj")));
+  QVERIFY(objFile.open(QIODevice::WriteOnly | QIODevice::Text));
+  QVERIFY(objFile.write("v -1 -1 0\nv 1 -1 0\nv 0 1 0\nf 1 2 3\n") > 0);
+  objFile.close();
+
+  RenderWorkerClient client;
+  if (!client.start(workerPath))
+    QSKIP(qPrintable(client.lastError()));
+
+  RenderWorkerClient::RenderSettingsState settings;
+  settings.settingsMode = 1;
+  settings.customStartScale = 1;
+  settings.customAccumulationEnabled = false;
+  settings.customFullResAccumulationOnly = false;
+  settings.customAoSamples = 0;
+  settings.customPixelSamples = 1;
+  settings.edgeRenderMode = 1;
+  settings.edgeColorR = 1.0f;
+  settings.edgeColorG = 0.0f;
+  settings.edgeColorB = 1.0f;
+  QVERIFY(client.setRenderSettings(settings));
+  QVERIFY(client.resize(96, 96));
+  QVERIFY(client.setRenderer(QStringLiteral("ao")));
+
+  const auto loadResult = client.loadObj(objFile.fileName());
+  QVERIFY(loadResult.success);
+  const rkcommon::math::vec3f center(
+      (loadResult.boundsMin.x + loadResult.boundsMax.x) * 0.5f,
+      (loadResult.boundsMin.y + loadResult.boundsMax.y) * 0.5f,
+      (loadResult.boundsMin.z + loadResult.boundsMax.z) * 0.5f);
+  const rkcommon::math::vec3f extent(loadResult.boundsMax.x - loadResult.boundsMin.x,
+      loadResult.boundsMax.y - loadResult.boundsMin.y,
+      loadResult.boundsMax.z - loadResult.boundsMin.z);
+  const float radius =
+      std::max(std::max(std::max(extent.x, extent.y), extent.z) * 0.5f, 0.001f);
+  QVERIFY(client.setCamera(rkcommon::math::vec3f(center.x, center.y - radius * 2.5f,
+              center.z + radius * 1.5f),
+      center,
+      rkcommon::math::vec3f(0.f, 0.f, 1.f),
+      60.0f));
+  QVERIFY(client.resetAccumulation());
+
+  const QImage overlayFrame = renderWorkerUntilImageReady(client);
+  QVERIFY(!overlayFrame.isNull());
+  QVERIFY(imageContainsRgb(overlayFrame, 255u, 0u, 255u));
+
+  settings.edgeRenderMode = 2;
+  settings.flatFillColorR = 0.0f;
+  settings.flatFillColorG = 1.0f;
+  settings.flatFillColorB = 0.0f;
+  QVERIFY(client.setRenderSettings(settings));
+  QVERIFY(client.resetAccumulation());
+  const QImage flatFillFrame = renderWorkerUntilImageReady(client);
+  QVERIFY(!flatFillFrame.isNull());
+  QVERIFY(imageContainsRgb(flatFillFrame, 255u, 0u, 255u));
+  QVERIFY(imageContainsRgb(flatFillFrame, 0u, 255u, 0u));
   client.stop();
 }
 

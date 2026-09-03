@@ -16,6 +16,8 @@ extern "C" {
 
 #include "ibrt_constants.h"
 
+#include "edgerender.h"
+
 #include <chrono>
 #include <algorithm>
 #include <cassert>
@@ -921,6 +923,63 @@ void OsprayBackend::setOpaqueBackgroundColor(const vec3f &color)
   }
 }
 
+void OsprayBackend::setEdgeRenderMode(EdgeRenderMode mode)
+{
+  if (mode != EdgeRenderMode::Disabled && mode != EdgeRenderMode::Overlay
+      && mode != EdgeRenderMode::FlatFill) {
+    mode = EdgeRenderMode::Disabled;
+  }
+  if (edgeRenderMode_ == mode)
+    return;
+
+  edgeRenderMode_ = mode;
+  edgeFrameBuffersReady_ = false;
+  pendingPassFrameBufferRebuild_ = true;
+  pendingAccumRebuild_ = true;
+  enqueueLatestRenderRequest("edgeMode");
+}
+
+OsprayBackend::EdgeRenderMode OsprayBackend::edgeRenderMode() const
+{
+  return edgeRenderMode_;
+}
+
+void OsprayBackend::setEdgeColor(const vec3f &color)
+{
+  const vec3f clamped(ibrt::edgerender::clampUnit(color.x),
+      ibrt::edgerender::clampUnit(color.y),
+      ibrt::edgerender::clampUnit(color.z));
+  if (edgeColor_ == clamped)
+    return;
+
+  edgeColor_ = clamped;
+  if (edgeRenderMode_ != EdgeRenderMode::Disabled)
+    resetAccumulation();
+}
+
+vec3f OsprayBackend::edgeColor() const
+{
+  return edgeColor_;
+}
+
+void OsprayBackend::setFlatFillColor(const vec3f &color)
+{
+  const vec3f clamped(ibrt::edgerender::clampUnit(color.x),
+      ibrt::edgerender::clampUnit(color.y),
+      ibrt::edgerender::clampUnit(color.z));
+  if (flatFillColor_ == clamped)
+    return;
+
+  flatFillColor_ = clamped;
+  if (edgeRenderMode_ == EdgeRenderMode::FlatFill)
+    resetAccumulation();
+}
+
+vec3f OsprayBackend::flatFillColor() const
+{
+  return flatFillColor_;
+}
+
 // Sets the zenith used by procedural environment lighting and rotates the
 // authored light rig into the same world-up basis.
 void OsprayBackend::setWorldUp(const vec3f &up)
@@ -1658,7 +1717,8 @@ void OsprayBackend::beginNextProgressivePass()
 void OsprayBackend::prepareTileFrameBuffer(int tileW, int tileH)
 {
   if (!passFb_.handle() || tileW != passW_ || tileH != passH_)
-    passFb_ = ospray::cpp::FrameBuffer(tileW, tileH, OSP_FB_SRGBA, OSP_FB_COLOR);
+    passFb_ = ospray::cpp::FrameBuffer(
+        tileW, tileH, OSP_FB_SRGBA, OSP_FB_COLOR | edgeFrameBufferChannels());
 }
 
 // (Re)creates the full-resolution accumulation framebuffer.  When denoising is
@@ -1669,12 +1729,14 @@ void OsprayBackend::prepareTileFrameBuffer(int tileW, int tileH)
 // pass is denoised; the low-res progressive preview passes are left untouched.
 void OsprayBackend::rebuildAccumFrameBuffer()
 {
-  int channels = OSP_FB_COLOR | OSP_FB_ACCUM;
+  int channels = OSP_FB_COLOR | OSP_FB_ACCUM | edgeFrameBufferChannels();
   const bool useDenoiser = denoiseEnabled_ && denoiserModuleAvailable_;
   if (useDenoiser)
     channels |= OSP_FB_ALBEDO | OSP_FB_NORMAL;
 
   accumFb_ = ospray::cpp::FrameBuffer(fbW_, fbH_, OSP_FB_SRGBA, channels);
+  edgeFrameBuffersReady_ =
+      edgeRenderMode_ != EdgeRenderMode::Disabled && accumFb_.handle();
 
   if (useDenoiser) {
     ospray::cpp::ImageOperation denoiser("denoiser");
@@ -1683,6 +1745,53 @@ void OsprayBackend::rebuildAccumFrameBuffer()
             std::vector<ospray::cpp::ImageOperation>{denoiser}));
     accumFb_.commit();
   }
+}
+
+int OsprayBackend::edgeFrameBufferChannels() const
+{
+  if (edgeRenderMode_ == EdgeRenderMode::Disabled)
+    return 0;
+  return OSP_FB_DEPTH | OSP_FB_NORMAL | OSP_FB_ID_OBJECT;
+}
+
+void OsprayBackend::applyEdgeRendering(ospray::cpp::FrameBuffer &frameBuffer,
+    uint32_t *pixels,
+    int width,
+    int height)
+{
+  if (edgeRenderMode_ == EdgeRenderMode::Disabled || !edgeFrameBuffersReady_
+      || !pixels || width <= 0 || height <= 0) {
+    return;
+  }
+
+  void *mappedDepth = frameBuffer.map(OSP_FB_DEPTH);
+  void *mappedNormal = frameBuffer.map(OSP_FB_NORMAL);
+  void *mappedObjectId = frameBuffer.map(OSP_FB_ID_OBJECT);
+
+  static_assert(sizeof(vec3f) >= sizeof(float) * 3);
+  ibrt::edgerender::Mode mode = ibrt::edgerender::Mode::Disabled;
+  if (edgeRenderMode_ == EdgeRenderMode::Overlay)
+    mode = ibrt::edgerender::Mode::Overlay;
+  else if (edgeRenderMode_ == EdgeRenderMode::FlatFill)
+    mode = ibrt::edgerender::Mode::FlatFill;
+
+  ibrt::edgerender::composite(pixels,
+      static_cast<const float *>(mappedDepth),
+      static_cast<const float *>(mappedNormal),
+      sizeof(vec3f) / sizeof(float),
+      static_cast<const uint32_t *>(mappedObjectId),
+      width,
+      height,
+      mode,
+      {edgeColor_.x, edgeColor_.y, edgeColor_.z},
+      {flatFillColor_.x, flatFillColor_.y, flatFillColor_.z});
+
+  if (mappedObjectId)
+    frameBuffer.unmap(mappedObjectId);
+  if (mappedNormal)
+    frameBuffer.unmap(mappedNormal);
+  if (mappedDepth)
+    frameBuffer.unmap(mappedDepth);
 }
 
 // Starts the next asynchronous OSPRay frame render based on pending state.
@@ -1756,6 +1865,7 @@ bool OsprayBackend::finishCompletedRender()
         size_t(passW_) * size_t(passH_) * sizeof(uint32_t));
     passFb_.unmap(mapped);
 
+    applyEdgeRendering(passFb_, passPixels_.data(), passW_, passH_);
     upsamplePassToDisplay();
     ++accumulatedFrames_;
     updatedImage = true;
@@ -1787,6 +1897,7 @@ bool OsprayBackend::finishCompletedRender()
     }
 
     accumFb_.unmap(mapped);
+    applyEdgeRendering(accumFb_, displayPixels_.data(), fbW_, fbH_);
     ++accumBlendFrame_;
     ++accumulatedFrames_;
     updatedImage = true;
@@ -1817,19 +1928,24 @@ void OsprayBackend::applyPendingState()
     fbH_ = std::max(1, pendingResizeH_);
     camera_.setParam("aspect", float(fbW_) / float(fbH_));
     cameraDirty_ = true;
+    passFb_ = ospray::cpp::FrameBuffer();
     rebuildAccumFrameBuffer();
     displayPixels_.assign(size_t(fbW_) * size_t(fbH_), 0u);
     resetProgressiveState(true);
     pendingResize_ = false;
     pendingAccumRebuild_ = false;
+    pendingPassFrameBufferRebuild_ = false;
   }
 
   if (pendingAccumRebuild_) {
     // The denoiser toggle changed which channels / image operations the
     // accumulation buffer needs, so rebuild it and restart accumulation.
+    if (pendingPassFrameBufferRebuild_)
+      passFb_ = ospray::cpp::FrameBuffer();
     rebuildAccumFrameBuffer();
     resetProgressiveState(false);
     pendingAccumRebuild_ = false;
+    pendingPassFrameBufferRebuild_ = false;
   }
 
   if (pendingRendererType_) {

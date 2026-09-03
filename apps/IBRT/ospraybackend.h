@@ -41,6 +41,7 @@ class OsprayBackend
     Quality
   };
   enum class VisualizationMode { Solid, Wireframe };
+  enum class EdgeRenderMode { Disabled, Overlay, FlatFill };
 
   // Camera projection. Perspective is the default; Orthographic uses a parallel
   // projection sized to preserve the perspective framing at the pivot plane.
@@ -66,6 +67,12 @@ class OsprayBackend
   bool loadBrlcad(const std::string &path, const std::string &topObject = "");
   void setVisualizationMode(VisualizationMode mode);
   VisualizationMode visualizationMode() const;
+  void setEdgeRenderMode(EdgeRenderMode mode);
+  EdgeRenderMode edgeRenderMode() const;
+  void setEdgeColor(const rkcommon::math::vec3f &color);
+  rkcommon::math::vec3f edgeColor() const;
+  void setFlatFillColor(const rkcommon::math::vec3f &color);
+  rkcommon::math::vec3f flatFillColor() const;
   // Switches perspective/orthographic projection. The change is applied between
   // frames (the OSPRay camera object is recreated with the new type).
   void setProjectionMode(ProjectionMode mode);
@@ -209,6 +216,11 @@ class OsprayBackend
   void beginNextProgressivePass();
   void prepareTileFrameBuffer(int tileW, int tileH);
   void rebuildAccumFrameBuffer();
+  int edgeFrameBufferChannels() const;
+  void applyEdgeRendering(ospray::cpp::FrameBuffer &frameBuffer,
+      uint32_t *pixels,
+      int width,
+      int height);
   // Applies the latest camera pose (cameraState_) to camera_, choosing the
   // projection-specific parameter (perspective "fovy" vs orthographic "height").
   void applyCameraParams();
@@ -254,6 +266,9 @@ class OsprayBackend
       ibrt::renderappearance::kViewportBackground.g,
       ibrt::renderappearance::kViewportBackground.b};
   VisualizationMode visualizationMode_ = VisualizationMode::Solid;
+  EdgeRenderMode edgeRenderMode_ = EdgeRenderMode::Disabled;
+  rkcommon::math::vec3f edgeColor_{0.0f, 0.0f, 0.0f};
+  rkcommon::math::vec3f flatFillColor_{0.78f, 0.78f, 0.78f};
   uint64_t accumulatedFrames_ = 0;
   static constexpr int kMaxSafeAoSamples = 32;
   static constexpr int kMaxSafePixelSamples = 64;
@@ -309,6 +324,8 @@ class OsprayBackend
   // Deferred rebuild of accumFb_ (e.g. after the denoiser toggle changes which
   // channels / image operations the accumulation buffer needs).
   bool pendingAccumRebuild_ = false;
+  bool pendingPassFrameBufferRebuild_ = false;
+  bool edgeFrameBuffersReady_ = false;
   bool denoiseEnabled_ = true;
   // Deferred recreation of camera_ after a projection-mode change (the OSPRay
   // camera type is fixed at construction, so switching requires a rebuild).

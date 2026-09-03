@@ -105,6 +105,15 @@ void mirrorBackendSettingsToWorkerState(const OsprayBackend &backend,
   settings.denoiseEnabled = backend.denoiseEnabled();
   settings.projectionMode =
       backend.projectionMode() == OsprayBackend::ProjectionMode::Orthographic ? 1 : 0;
+  settings.edgeRenderMode = static_cast<int>(backend.edgeRenderMode());
+  const auto edgeColor = backend.edgeColor();
+  settings.edgeColorR = edgeColor.x;
+  settings.edgeColorG = edgeColor.y;
+  settings.edgeColorB = edgeColor.z;
+  const auto flatFillColor = backend.flatFillColor();
+  settings.flatFillColorR = flatFillColor.x;
+  settings.flatFillColorG = flatFillColor.y;
+  settings.flatFillColorB = flatFillColor.z;
 }
 
 } // namespace ibrt::qualitysettings
