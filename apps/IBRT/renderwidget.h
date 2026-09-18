@@ -28,6 +28,8 @@
 #include "ospraybackend.h"
 #include "interactioncontroller.h"
 
+class CellPlotOverlayController;
+
 class RenderWidget : public QOpenGLWidget, protected QOpenGLFunctions
 {
   Q_OBJECT
@@ -165,6 +167,7 @@ class RenderWidget : public QOpenGLWidget, protected QOpenGLFunctions
   void resetFlySpeed();
   float flyMoveStep_ = 0.0f;
   void syncCameraToBackend();
+  void scheduleCellPlotEvaluation();
   bool usingWorkerRenderPath() const;
   void resetAccumulationTargets();
   void refreshRenderPreservingView();
@@ -211,6 +214,7 @@ class RenderWidget : public QOpenGLWidget, protected QOpenGLFunctions
   void applyObjectAction(const InteractionController::Result &result, const QPoint &delta);
 
   OsprayBackend backend_;
+  CellPlotOverlayController *cellPlotController_ = nullptr;
   QImage image_;
   QPoint lastMouse_;
   QTimer *renderTimer_ = nullptr;

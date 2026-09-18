@@ -68,6 +68,8 @@ class RenderWorkerClient : public QObject
     bool denoiseEnabled = true;
     // 0 = perspective, 1 = orthographic (mirrors OsprayBackend::ProjectionMode).
     int projectionMode = 0;
+    // 0 = disabled, 1 = overlay, 2 = edges only.
+    int hiddenLineMode = 0;
   };
 
   explicit RenderWorkerClient(QObject *parent = nullptr);

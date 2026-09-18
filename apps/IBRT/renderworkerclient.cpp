@@ -3,6 +3,7 @@
 
 #include "renderworkerclient.h"
 
+#include "ipc_wire.h"
 #include "worker_ipc.h"
 
 #include <QCoreApplication>
@@ -398,28 +399,7 @@ bool RenderWorkerClient::setRenderSettings(const RenderSettingsState &settings)
   Q_UNUSED(settings);
   return false;
 #else
-  struct SettingsPayload
-  {
-    int32_t settingsMode;
-    int32_t automaticPreset;
-    float automaticTargetFrameTimeMs;
-    uint32_t automaticAccumulationEnabled;
-    int32_t customStartScale;
-    float customTargetFrameTimeMs;
-    int32_t customAoSamples;
-    float customAoDistance;
-    int32_t customPixelSamples;
-    int32_t customMaxPathLength;
-    int32_t customRoulettePathLength;
-    uint32_t customAccumulationEnabled;
-    int32_t customMaxAccumulationFrames;
-    uint32_t customLowQualityWhileInteracting;
-    uint32_t customFullResAccumulationOnly;
-    int32_t customWatchdogTimeoutMs;
-    float worldUp[3];
-    uint32_t denoiseEnabled;
-    uint32_t projectionMode;
-  } payload{settings.settingsMode,
+  ibrt::ipc::wire::SettingsPayload payload{settings.settingsMode,
       settings.automaticPreset,
       settings.automaticTargetFrameTimeMs,
       settings.automaticAccumulationEnabled ? 1u : 0u,
@@ -437,7 +417,8 @@ bool RenderWorkerClient::setRenderSettings(const RenderSettingsState &settings)
       settings.customWatchdogTimeoutMs,
       {settings.worldUpX, settings.worldUpY, settings.worldUpZ},
       settings.denoiseEnabled ? 1u : 0u,
-      static_cast<uint32_t>(settings.projectionMode)
+      static_cast<uint32_t>(settings.projectionMode),
+      static_cast<uint32_t>(settings.hiddenLineMode)
   };
   std::string response;
   return sendRequestBytes(static_cast<uint32_t>(ibrt::ipc::MessageType::SetRenderSettings),

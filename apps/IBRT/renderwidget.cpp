@@ -3,6 +3,7 @@
 
 #include "renderwidget.h"
 
+#include "cellplotoverlaycontroller.h"
 #include "renderworkerclient.h"
 #include "qualitysettings.h"
 #include "renderappearance.h"
@@ -72,6 +73,17 @@ RenderWidget::RenderWidget(QWidget *parent) : QOpenGLWidget(parent)
   setFocusPolicy(Qt::StrongFocus);
   workerRequestStart_ = std::chrono::steady_clock::now();
   workerPendingCommands_.settingsState = workerSettings_;
+  cellPlotController_ = new CellPlotOverlayController(this);
+  connect(cellPlotController_,
+      &CellPlotOverlayController::overlayChanged,
+      this,
+      qOverload<>(&RenderWidget::update));
+  connect(cellPlotController_,
+      &CellPlotOverlayController::statusChanged,
+      this,
+      qOverload<>(&RenderWidget::update));
+  if (qEnvironmentVariableIntValue("IBRT_ENABLE_CELL_PLOT") != 0)
+    cellPlotController_->setEnabled(true);
   startWorkerPolling();
 }
 
@@ -81,6 +93,9 @@ RenderWidget::~RenderWidget()
   stopWorkerPolling();
   if (sceneLoadThread_.joinable())
     sceneLoadThread_.join();
+
+  delete cellPlotController_;
+  cellPlotController_ = nullptr;
 
   makeCurrent();
   ImGui_ImplOpenGL3_Shutdown();
@@ -476,6 +491,39 @@ void RenderWidget::syncCameraToBackend()
     if (usingWorkerRenderPath())
       queueWorkerCameraUpdate(flyPos_, flyPos_ + forward, worldUp(), fovy_);
   }
+
+  scheduleCellPlotEvaluation();
+}
+
+// Sends an immutable view snapshot to the optional secondary-visualization
+// plugin. The controller debounces view motion and performs all ray work away
+// from the UI thread.
+void RenderWidget::scheduleCellPlotEvaluation()
+{
+  if (!cellPlotController_)
+    return;
+
+  if (currentBrlcadPath_.isEmpty()) {
+    cellPlotController_->clearScene();
+    return;
+  }
+
+  const vec3f eye = currentCameraPosition();
+  const vec3f forward = currentCameraForward();
+  const vec3f up = currentCameraUp();
+  ibrt::cellplot::Request request;
+  request.columns = ibrt::cellplot::kDefaultGridColumns;
+  request.rows = ibrt::cellplot::kDefaultGridRows;
+  request.camera.position = {eye.x, eye.y, eye.z};
+  request.camera.forward = {forward.x, forward.y, forward.z};
+  request.camera.up = {up.x, up.y, up.z};
+  request.camera.verticalFovDegrees = fovy_;
+  request.camera.aspectRatio = height() > 0 ? double(width()) / double(height()) : 1.0;
+  request.camera.focusDistance = inputMode_ == InputMode::Orbit ? std::max(double(dist_), 1e-6)
+                                                                : 1.0;
+  request.camera.orthographic = isOrthographic();
+  cellPlotController_->requestEvaluation(
+      currentBrlcadPath_, currentBrlcadObject_, request);
 }
 
 // Returns true when rendering is delegated to the external worker process.
@@ -662,6 +710,14 @@ void RenderWidget::paintGL()
 #endif
     p.drawImage(rect(), img);
   }
+  if (cellPlotController_ && cellPlotController_->isEnabled()) {
+    const QImage cellPlot = cellPlotController_->overlay();
+    if (!cellPlot.isNull()) {
+      p.setRenderHint(QPainter::SmoothPixmapTransform, false);
+      p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+      p.drawImage(rect(), cellPlot);
+    }
+  }
   drawRotationAxisOverlay(p);
   p.end();
 
@@ -790,6 +846,56 @@ void RenderWidget::paintGL()
     backend_.setVisualizationMode(OsprayBackend::VisualizationMode::Wireframe);
     if (!currentBrlcadPath_.isEmpty())
       loadBrlcadModelImpl(currentBrlcadPath_, currentBrlcadObject_, false);
+  }
+
+  ImGui::Text("Hidden lines");
+  int hiddenLineMode = usingWorkerRenderPath()
+      ? workerSettings_.hiddenLineMode
+      : static_cast<int>(backend_.hiddenLineMode());
+  const auto applyHiddenLineMode = [this](int mode) {
+    workerSettings_.hiddenLineMode = mode;
+    if (usingWorkerRenderPath()) {
+      queueWorkerSettings(workerSettings_);
+    } else {
+      backend_.setHiddenLineMode(
+          static_cast<ibrt::render::HiddenLineMode>(mode));
+      mirrorBackendSettingsToWorkerState();
+    }
+    refreshRenderPreservingView();
+  };
+  if (ImGui::RadioButton("Off##hidden-lines", hiddenLineMode == 0))
+    applyHiddenLineMode(0);
+  ImGui::SameLine();
+  if (ImGui::RadioButton("Overlay##hidden-lines", hiddenLineMode == 1))
+    applyHiddenLineMode(1);
+  ImGui::SameLine();
+  if (ImGui::RadioButton("Edges only##hidden-lines", hiddenLineMode == 2))
+    applyHiddenLineMode(2);
+
+  if (cellPlotController_) {
+    bool cellPlotEnabled = cellPlotController_->isEnabled();
+    const bool cellPlotAvailable = cellPlotController_->isAvailable();
+    if (!cellPlotAvailable)
+      ImGui::BeginDisabled();
+    if (ImGui::Checkbox("Cell plot overlay (prototype)", &cellPlotEnabled)) {
+      cellPlotController_->setEnabled(cellPlotEnabled);
+      if (cellPlotEnabled)
+        scheduleCellPlotEvaluation();
+    }
+    if (!cellPlotAvailable)
+      ImGui::EndDisabled();
+
+    const QByteArray pluginName = cellPlotController_->pluginName().toUtf8();
+    const QByteArray pluginStatus = cellPlotController_->status().toUtf8();
+    if (!pluginName.isEmpty())
+      ImGui::Text("Plugin: %s", pluginName.constData());
+    ImGui::TextWrapped("Cell plot: %s", pluginStatus.constData());
+    if (cellPlotController_->raysTraced() > 0) {
+      ImGui::Text("Grid: %d x %d, hits: %llu",
+          ibrt::cellplot::kDefaultGridColumns,
+          ibrt::cellplot::kDefaultGridRows,
+          static_cast<unsigned long long>(cellPlotController_->cellsHit()));
+    }
   }
 
   ImGui::Separator();
@@ -1570,6 +1676,7 @@ void RenderWidget::setOrthographic(bool orthographic)
 
   emit projectionModeChanged(orthographic);
   resetAccumulationTargets();
+  scheduleCellPlotEvaluation();
   renderOnce();
   update();
 }
