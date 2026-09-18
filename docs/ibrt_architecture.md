@@ -67,6 +67,21 @@ This is the lowest-level boundary, linking OSPRay to BRL-CAD. It compiles as a s
 -   **ISPC Bridge (`brlcad.ispc`)**: OSPRay and Embree rely heavily on the Intel SPMD Program Compiler (ISPC) for vectorized ray casting. The plugin provides ISPC kernels that Embree calls when a ray hits the bounding box of a BRL-CAD object.
 -   **`librt` Interface**: Inside the intersection callback, the plugin bridges from the vectorized ISPC domain back into scalar C++ to call BRL-CAD's `rt_shootray` or evaluate constructive solid geometry (CSG) boolean trees.
 
+### 2.5 Render Providers and Frame Effects
+
+Render choices are split into two independent axes:
+
+- **Base render providers** produce a color frame. OSPRay is the current provider, with `ao`, `scivis`, and `pathtracer` renderer choices. Future BRL-CAD `liboptical` and Appleseed integrations belong here rather than in the OSPRay renderer-name switch.
+- **Frame effects** consume renderer-independent scene/view data and composite onto, or replace, a color frame. Hidden-line rendering is the first integrated effect; the cell-plot prototype is an externally loaded effect. `rtwizard`-style results should be expressed as named combinations of a provider plus an ordered effect stack.
+
+Hidden-line rendering is integrated rather than shipped as a binary plugin for now. It must share the worker's scene, camera, progressive resolution, cancellation, and frame-cache lifecycle, and there is not yet a second general render-effect implementation from which to derive a stable ABI. The implementation still preserves the future boundary:
+
+- `hiddenlinerenderer` supplies BRL-CAD first-hit region, distance, and normal data using `librt`.
+- `hiddenlineeffect` detects and composites edges without depending on BRL-CAD, OSPRay, or Qt.
+- `OsprayBackend` only schedules the provider and applies the effect to completed frames.
+
+When another base provider is added, extract the OSPRay-specific work behind a provider interface while retaining the effect contract. When multiple independently distributed effects need the same lifecycle, promote that effect contract to a versioned plugin ABI. This avoids making renderer implementations masquerade as OSPRay plugins and avoids freezing an ABI around a single use case.
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -96,3 +111,4 @@ sequenceDiagram
 2.  **External `bext` Dependencies**: IBRT explicitly does *not* vendor OSPRay or Embree. It relies on a pre-built `bext` dependency tree. This keeps the IBRT repository lightweight and cleanly separates the visualization app from the rendering engine's build system.
 3.  **Stateless Render Requests**: The IPC protocol is largely imperative and stateless for the client. The UI dictates the *desired* camera and resolution, and the worker attempts to fulfill it as fast as possible, returning whatever progressive stage it achieved.
 4.  **C++/ISPC Shared Structs**: To minimize overhead at the ray-intersection boundary, `BRLCADShared.h` defines memory layouts that are identical in both C++ and ISPC, allowing zero-copy pointer passing between OSPRay's vectorized renderer and the BRL-CAD C++ plugin state.
+5.  **Composable Render Pipeline**: Base image generation and frame effects are separate selections. Hidden lines can therefore replace a frame or overlay AO, SciVis, path tracing, wireframe, and future providers without duplicating renderer implementations.
