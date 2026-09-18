@@ -36,6 +36,7 @@ endif()
 
 option(IBRT_BUILD_VIEWER "Build the IBRT desktop viewer" ON)
 option(IBRT_BUILD_PLUGIN_BRL_CAD "Build the BRL-CAD OSPRay plugin" ON)
+option(IBRT_BUILD_PLUGIN_CELL_PLOT "Build the prototype cell-plot visualization plugin" ON)
 option(IBRT_BUILD_TESTS "Build the IBRT test suite" ${BUILD_TESTING})
 option(IBRT_ENABLE_RENDER_WORKER "Build the out-of-process render worker" ${IBRT_RENDER_WORKER_DEFAULT})
 
