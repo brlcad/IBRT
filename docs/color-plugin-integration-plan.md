@@ -3,7 +3,13 @@
 **Status:** Draft / design agreed in principle. Phase 1 (T1) approved to start.
 **Owners:** IBRT dev.
 **Related:** `docs/ibrt_architecture.md`, `docs/repo-layout.md`.
-**Backend:** the `rayshade::RayShader` ray-shading library (mock harness at `D:/devtools/rayshade-mock`; interface in `include/rayshade/RayShader.h`).
+**Backend:** the `rayshade::RayShader` ray-shading library (mock harness at
+`rayshade-mock/`; interface in `rayshade-mock/include/rayshade/RayShader.h`).
+
+**Prototype note (2026-08-23):** the runtime-loaded, 100 x 100 region-id cell overlay described in
+[`cell-plot-plugin-prototype.md`](cell-plot-plugin-prototype.md) is implemented as an integration
+prototype. It uses BRL-CAD first-hit rays and deterministic region colors rather than production
+shading values, so it de-risks the plugin/camera/overlay lifecycle without claiming T1 acceptance.
 
 > During early development IBRT builds against the `RayShader` mock, which returns stable
 > placeholder values. The production backend is swapped in later behind the same interface.
