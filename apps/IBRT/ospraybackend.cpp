@@ -14,6 +14,7 @@ extern "C" {
 #undef UNUSED
 #include "ospraybackend.h"
 
+#include "hiddenlinerenderer.h"
 #include "ibrt_constants.h"
 
 #include <chrono>
@@ -231,6 +232,14 @@ std::vector<ospray::cpp::Light> makeDefaultLights(
 }
 }
 
+OsprayBackend::OsprayBackend()
+    : hiddenLineRenderer_(
+          std::make_unique<ibrt::render::HiddenLineRenderer>())
+{
+}
+
+OsprayBackend::~OsprayBackend() = default;
+
 // Creates the default renderer, camera, and fallback test scene.
 void OsprayBackend::init()
 {
@@ -298,6 +307,7 @@ void OsprayBackend::resize(int w, int h)
 void OsprayBackend::setCamera(const vec3f &eye, const vec3f &center, const vec3f &up, float fovyDeg)
 {
   ++cameraVersion_;
+  invalidateHiddenLineCache();
   if (frameInFlight_) {
     // Interactive camera motion is allowed to preempt non-preview work so the
     // viewport stays responsive while the user drags.
@@ -368,6 +378,7 @@ void OsprayBackend::setProjectionMode(ProjectionMode mode)
   if (projectionMode_ == mode)
     return;
   projectionMode_ = mode;
+  invalidateHiddenLineCache();
   pendingProjectionRebuild_ = true;
   enqueueLatestRenderRequest("projection");
 }
@@ -555,6 +566,12 @@ float OsprayBackend::getBoundsRadius() const
 // Builds a simple fallback triangle mesh used before a real scene is loaded.
 void OsprayBackend::loadTestMesh()
 {
+  currentBrlcadPath_.clear();
+  currentBrlcadObject_.clear();
+  if (hiddenLineRenderer_)
+    hiddenLineRenderer_->clearScene();
+  invalidateHiddenLineCache();
+
   std::vector<vec3f> vertex = {vec3f(-1.0f, -1.0f, 3.0f),
       vec3f(-1.0f, 1.0f, 3.0f),
       vec3f(1.0f, -1.0f, 3.0f),
@@ -705,6 +722,11 @@ bool OsprayBackend::loadObj(const std::string &path)
     applyDefaultLights();
     world_.commit();
 
+    currentBrlcadPath_.clear();
+    currentBrlcadObject_.clear();
+    if (hiddenLineRenderer_)
+      hiddenLineRenderer_->clearScene();
+    invalidateHiddenLineCache();
     resetAccumulation();
     return true;
   } catch (const std::exception &e) {
@@ -747,8 +769,20 @@ bool OsprayBackend::loadBrlcad(
     }
   }
 
-  if (visualizationMode_ == VisualizationMode::Wireframe)
-    return loadBrlcadWireframe(path, topObject);
+  if (visualizationMode_ == VisualizationMode::Wireframe) {
+    const bool loaded = loadBrlcadWireframe(path, topObject);
+    if (loaded) {
+      currentBrlcadPath_ = path;
+      currentBrlcadObject_ = topObject;
+      invalidateHiddenLineCache();
+      if (hiddenLineMode_ != ibrt::render::HiddenLineMode::Disabled) {
+        prepareHiddenLineScene();
+      } else if (hiddenLineRenderer_) {
+        hiddenLineRenderer_->clearScene();
+      }
+    }
+    return loaded;
+  }
 
   std::string moduleError;
   if (!ensureBrlcadModuleLoaded(moduleError)) {
@@ -845,6 +879,14 @@ bool OsprayBackend::loadBrlcad(
   }
 
   fprintf(stderr, "STEP 17: Reset accumulation\n");
+  currentBrlcadPath_ = path;
+  currentBrlcadObject_ = topObject;
+  invalidateHiddenLineCache();
+  if (hiddenLineMode_ != ibrt::render::HiddenLineMode::Disabled) {
+    prepareHiddenLineScene();
+  } else if (hiddenLineRenderer_) {
+    hiddenLineRenderer_->clearScene();
+  }
   resetAccumulation();
 
   fprintf(stderr, "loadBrlcad: SUCCESS\n");
@@ -1537,7 +1579,7 @@ void OsprayBackend::applyDefaultLights()
 {
   world_.setParam("light",
       ospray::cpp::CopiedData(
-          makeDefaultLights(currentRenderer_, environmentVisible_, worldUp_)));
+          makeDefaultLights(currentRenderer_, worldUp_, environmentVisible_)));
 }
 
 // Controls whether the path-tracer sky/sun environment is drawn behind the
@@ -1756,6 +1798,7 @@ bool OsprayBackend::finishCompletedRender()
         size_t(passW_) * size_t(passH_) * sizeof(uint32_t));
     passFb_.unmap(mapped);
 
+    applyHiddenLineEffect(passPixels_, passW_, passH_);
     upsamplePassToDisplay();
     ++accumulatedFrames_;
     updatedImage = true;
@@ -1787,6 +1830,7 @@ bool OsprayBackend::finishCompletedRender()
     }
 
     accumFb_.unmap(mapped);
+    applyHiddenLineEffect(displayPixels_, fbW_, fbH_);
     ++accumBlendFrame_;
     ++accumulatedFrames_;
     updatedImage = true;
@@ -1850,6 +1894,7 @@ void OsprayBackend::applyPendingState()
   if (pendingCameraState_) {
     cameraState_ = *pendingCameraState_;
     applyCameraParams();
+    invalidateHiddenLineCache();
     pendingCameraState_.reset();
     pendingResetAccumulation_ = true;
   }
@@ -1988,6 +2033,97 @@ void OsprayBackend::setVisualizationMode(VisualizationMode mode)
 OsprayBackend::VisualizationMode OsprayBackend::visualizationMode() const
 {
   return visualizationMode_;
+}
+
+void OsprayBackend::setHiddenLineMode(ibrt::render::HiddenLineMode mode)
+{
+  if (hiddenLineMode_ == mode)
+    return;
+
+  cancelInFlightFrame("hidden_line_mode");
+  hiddenLineMode_ = mode;
+  invalidateHiddenLineCache();
+  if (hiddenLineMode_ != ibrt::render::HiddenLineMode::Disabled
+      && hiddenLineRenderer_ && !hiddenLineRenderer_->hasScene()) {
+    prepareHiddenLineScene();
+  }
+  resetProgressiveState(false);
+  enqueueLatestRenderRequest("hidden_line_mode");
+}
+
+ibrt::render::HiddenLineMode OsprayBackend::hiddenLineMode() const
+{
+  return hiddenLineMode_;
+}
+
+bool OsprayBackend::prepareHiddenLineScene()
+{
+  if (!hiddenLineRenderer_ || currentBrlcadPath_.empty())
+    return false;
+
+  std::string error;
+  if (!hiddenLineRenderer_->loadScene(
+          currentBrlcadPath_, currentBrlcadObject_, error)) {
+    if (!error.empty())
+      setError(error);
+    return false;
+  }
+  invalidateHiddenLineCache();
+  return true;
+}
+
+void OsprayBackend::invalidateHiddenLineCache()
+{
+  hiddenLineMask_.clear();
+  hiddenLineCacheCameraVersion_ = std::numeric_limits<std::uint64_t>::max();
+  hiddenLineCacheWidth_ = 0;
+  hiddenLineCacheHeight_ = 0;
+}
+
+void OsprayBackend::applyHiddenLineEffect(
+    std::vector<std::uint32_t> &pixels, int width, int height)
+{
+  if (hiddenLineMode_ == ibrt::render::HiddenLineMode::Disabled
+      || pixels.size() != std::size_t(width) * std::size_t(height)
+      || !hiddenLineRenderer_) {
+    return;
+  }
+
+  if (!hiddenLineRenderer_->hasScene() && !prepareHiddenLineScene())
+    return;
+
+  if (hiddenLineCacheCameraVersion_ != cameraVersion_
+      || hiddenLineCacheWidth_ != width || hiddenLineCacheHeight_ != height) {
+    ibrt::render::HiddenLineCamera camera;
+    camera.eye = {cameraState_.eye.x, cameraState_.eye.y, cameraState_.eye.z};
+    camera.center = {
+        cameraState_.center.x, cameraState_.center.y, cameraState_.center.z};
+    camera.up = {cameraState_.up.x, cameraState_.up.y, cameraState_.up.z};
+    camera.verticalFovDegrees = cameraState_.fovyDeg;
+    camera.aspectRatio = height > 0 ? float(width) / float(height) : 1.0f;
+    camera.orthographic = projectionMode_ == ProjectionMode::Orthographic;
+
+    std::string error;
+    if (!hiddenLineRenderer_->renderMask(camera,
+            width,
+            height,
+            hiddenLineMask_,
+            hiddenLineSettings_,
+            error)) {
+      if (!error.empty())
+        setError(error);
+      return;
+    }
+    hiddenLineCacheCameraVersion_ = cameraVersion_;
+    hiddenLineCacheWidth_ = width;
+    hiddenLineCacheHeight_ = height;
+  }
+
+  ibrt::render::compositeHiddenLineEdges(pixels.data(),
+      pixels.size(),
+      hiddenLineMask_.data(),
+      hiddenLineMode_,
+      hiddenLineSettings_);
 }
 
 // Builds OSPRay linear curves from the line segments emitted by each

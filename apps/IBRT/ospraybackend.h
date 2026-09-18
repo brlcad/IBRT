@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <array>
 #include <chrono>
+#include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -14,6 +16,11 @@
 #include <ospray/ospray_cpp/ext/rkcommon.h>
 
 #include "renderappearance.h"
+#include "hiddenlineeffect.h"
+
+namespace ibrt::render {
+class HiddenLineRenderer;
+}
 
 class OsprayBackend
 {
@@ -46,7 +53,8 @@ class OsprayBackend
   // projection sized to preserve the perspective framing at the pivot plane.
   enum class ProjectionMode { Perspective, Orthographic };
 
-  OsprayBackend() = default;
+  OsprayBackend();
+  ~OsprayBackend();
 
   // Backend lifecycle and render loop.
   void init();
@@ -66,6 +74,8 @@ class OsprayBackend
   bool loadBrlcad(const std::string &path, const std::string &topObject = "");
   void setVisualizationMode(VisualizationMode mode);
   VisualizationMode visualizationMode() const;
+  void setHiddenLineMode(ibrt::render::HiddenLineMode mode);
+  ibrt::render::HiddenLineMode hiddenLineMode() const;
   // Switches perspective/orthographic projection. The change is applied between
   // frames (the OSPRay camera object is recreated with the new type).
   void setProjectionMode(ProjectionMode mode);
@@ -222,6 +232,10 @@ class OsprayBackend
   void applyRendererDefaults();
   void applyDefaultMaterial(ospray::cpp::GeometricModel &model);
   void applyWorldInstances();
+  bool prepareHiddenLineScene();
+  void invalidateHiddenLineCache();
+  void applyHiddenLineEffect(
+      std::vector<std::uint32_t> &pixels, int width, int height);
   bool loadBrlcadWireframe(const std::string &path, const std::string &topObject);
 
   int fbW_ = 1;
@@ -254,6 +268,17 @@ class OsprayBackend
       ibrt::renderappearance::kViewportBackground.g,
       ibrt::renderappearance::kViewportBackground.b};
   VisualizationMode visualizationMode_ = VisualizationMode::Solid;
+  ibrt::render::HiddenLineMode hiddenLineMode_ =
+      ibrt::render::HiddenLineMode::Disabled;
+  std::unique_ptr<ibrt::render::HiddenLineRenderer> hiddenLineRenderer_;
+  ibrt::render::HiddenLineSettings hiddenLineSettings_;
+  std::vector<std::uint8_t> hiddenLineMask_;
+  std::uint64_t hiddenLineCacheCameraVersion_ =
+      std::numeric_limits<std::uint64_t>::max();
+  int hiddenLineCacheWidth_ = 0;
+  int hiddenLineCacheHeight_ = 0;
+  std::string currentBrlcadPath_;
+  std::string currentBrlcadObject_;
   uint64_t accumulatedFrames_ = 0;
   static constexpr int kMaxSafeAoSamples = 32;
   static constexpr int kMaxSafePixelSamples = 64;
