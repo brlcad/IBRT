@@ -105,6 +105,8 @@ void mirrorBackendSettingsToWorkerState(const OsprayBackend &backend,
   settings.denoiseEnabled = backend.denoiseEnabled();
   settings.projectionMode =
       backend.projectionMode() == OsprayBackend::ProjectionMode::Orthographic ? 1 : 0;
+  settings.hiddenLineMode =
+      static_cast<int>(backend.hiddenLineMode());
 }
 
 } // namespace ibrt::qualitysettings
