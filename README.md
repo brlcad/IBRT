@@ -11,6 +11,8 @@ problems through the repository's GitHub issue tracker.
   The Qt desktop viewer, render worker, and test suite.
 - `plugins/brl_cad`
   The BRL-CAD OSPRay plugin built as `ospray_module_brl_cad`.
+- `plugins/cell_plot`
+  The runtime-loaded prototype secondary visualization plugin.
 - `docs`
   Project-specific build notes, layout notes, and performance plans.
 
@@ -63,7 +65,16 @@ More detail lives in [docs/building.md](docs/building.md).
 
 - `IBRT` and `IBRTRenderWorker` use OSPRay from the supplied `bext` install.
 - The BRL-CAD plugin is built in this repo and deployed into the local runtime output for the app, worker, and tests.
+- The prototype cell-plot plugin is deployed under `plugins/visualizations` beside the viewer and
+  `IBRTOfflineRender` executables. The headless renderer enables it explicitly with `--cell-plot`.
 - Demo BRL-CAD databases are loaded from `BRLCAD_PREFIX/share/db` and copied into local viewer runtimes when available.
+- The viewer's **Visualization → Hidden lines** control offers `Off`, `Overlay`, and `Edges only`; it works independently of the selected OSPRay renderer.
+- Headless renders use the same effect with `--hidden-lines off|overlay|only`, for example:
+
+  ```sh
+  IBRTOfflineRender model.g all edges.png --renderer scivis --hidden-lines only
+  IBRTOfflineRender model.g all shaded-edges.png --renderer pathtracer --hidden-lines overlay
+  ```
 
 ## Repository Docs
 
@@ -71,4 +82,5 @@ More detail lives in [docs/building.md](docs/building.md).
 - [Controls and Key Bindings](docs/keybindings.md)
 - [Repo Layout](docs/repo-layout.md)
 - [Performance Notes](docs/perf/ibrt-moss-performance-plan.md)
+- [Cell-Plot Plugin Prototype](docs/cell-plot-plugin-prototype.md)
 - [Release Checklist](docs/releasing.md)
