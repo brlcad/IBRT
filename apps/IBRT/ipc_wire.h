@@ -93,8 +93,10 @@ struct SettingsPayload
   std::uint32_t customLowQualityWhileInteracting;
   std::uint32_t customFullResAccumulationOnly;
   std::int32_t customWatchdogTimeoutMs;
+  float worldUp[3];
   std::uint32_t denoiseEnabled;
   std::uint32_t projectionMode; // 0 = perspective, 1 = orthographic
+  std::uint32_t hiddenLineMode; // 0 = disabled, 1 = overlay, 2 = edges only
 };
 
 // ---------------------------------------------------------------------------
@@ -114,7 +116,7 @@ static_assert(sizeof(LoadResultPayload) == 32, "LoadResultPayload layout drift")
 static_assert(sizeof(ResizePayload) == 8, "ResizePayload layout drift");
 static_assert(sizeof(CameraPayload) == 40, "CameraPayload layout drift");
 static_assert(sizeof(FrameHeader) == 56, "FrameHeader layout drift");
-static_assert(sizeof(SettingsPayload) == 72, "SettingsPayload layout drift");
+static_assert(sizeof(SettingsPayload) == 88, "SettingsPayload layout drift");
 
 // A couple of explicit offset checks on the struct whose 8-byte members force
 // alignment padding, so a reordering that keeps the size constant is still
