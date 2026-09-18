@@ -1,6 +1,7 @@
 // Copyright (c) 2026 BRL-CAD Visualizer contributors
 // SPDX-License-Identifier: MIT
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -9,6 +10,7 @@
 #include <ospray/ospray.h>
 
 #include "ospraybackend.h"
+#include "ipc_wire.h"
 #include "worker_ipc.h"
 
 #ifdef _WIN32
@@ -313,28 +315,7 @@ int main(int argc, char *argv[])
       break;
 
     case ibrt::ipc::MessageType::SetRenderSettings: {
-      struct SettingsPayload
-      {
-        int32_t settingsMode;
-        int32_t automaticPreset;
-        float automaticTargetFrameTimeMs;
-        uint32_t automaticAccumulationEnabled;
-        int32_t customStartScale;
-        float customTargetFrameTimeMs;
-        int32_t customAoSamples;
-        float customAoDistance;
-        int32_t customPixelSamples;
-        int32_t customMaxPathLength;
-        int32_t customRoulettePathLength;
-        uint32_t customAccumulationEnabled;
-        int32_t customMaxAccumulationFrames;
-        uint32_t customLowQualityWhileInteracting;
-        uint32_t customFullResAccumulationOnly;
-        int32_t customWatchdogTimeoutMs;
-        float worldUp[3];
-        uint32_t denoiseEnabled;
-        uint32_t projectionMode;
-      } payload{};
+      ibrt::ipc::wire::SettingsPayload payload{};
       if (!readPodPayload(message.payload, payload)) {
         ibrt::ipc::writeMessage(socketDescriptor,
             {ibrt::ipc::MessageType::Error,
@@ -372,6 +353,8 @@ int main(int argc, char *argv[])
       backend.setProjectionMode(payload.projectionMode != 0
               ? OsprayBackend::ProjectionMode::Orthographic
               : OsprayBackend::ProjectionMode::Perspective);
+      backend.setHiddenLineMode(static_cast<ibrt::render::HiddenLineMode>(
+          std::min(payload.hiddenLineMode, std::uint32_t{2})));
       ibrt::ipc::writeMessage(socketDescriptor,
           {ibrt::ipc::MessageType::LoadResult, message.requestId, std::string()});
       break;
@@ -617,28 +600,7 @@ int main(int argc, char *argv[])
       break;
 
     case ibrt::ipc::MessageType::SetRenderSettings: {
-      struct SettingsPayload
-      {
-        int32_t settingsMode;
-        int32_t automaticPreset;
-        float automaticTargetFrameTimeMs;
-        uint32_t automaticAccumulationEnabled;
-        int32_t customStartScale;
-        float customTargetFrameTimeMs;
-        int32_t customAoSamples;
-        float customAoDistance;
-        int32_t customPixelSamples;
-        int32_t customMaxPathLength;
-        int32_t customRoulettePathLength;
-        uint32_t customAccumulationEnabled;
-        int32_t customMaxAccumulationFrames;
-        uint32_t customLowQualityWhileInteracting;
-        uint32_t customFullResAccumulationOnly;
-        int32_t customWatchdogTimeoutMs;
-        float worldUp[3];
-        uint32_t denoiseEnabled;
-        uint32_t projectionMode;
-      } payload{};
+      ibrt::ipc::wire::SettingsPayload payload{};
       if (!readPodPayload(message.payload, payload)) {
         ibrt::ipc::writeMessage(pipe,
             {ibrt::ipc::MessageType::Error,
@@ -676,6 +638,8 @@ int main(int argc, char *argv[])
       backend.setProjectionMode(payload.projectionMode != 0
               ? OsprayBackend::ProjectionMode::Orthographic
               : OsprayBackend::ProjectionMode::Perspective);
+      backend.setHiddenLineMode(static_cast<ibrt::render::HiddenLineMode>(
+          std::min(payload.hiddenLineMode, std::uint32_t{2})));
       ibrt::ipc::writeMessage(
           pipe, {ibrt::ipc::MessageType::LoadResult, message.requestId, std::string()});
       break;
