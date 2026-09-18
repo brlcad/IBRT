@@ -3,9 +3,9 @@
 
 // Headless (no-GUI) still-image renderer built on OsprayBackend (improvement
 // plan item #49 / F-01). Unlike IBRTReferenceRender (a fixed-purpose regression
-// fixture), this is a general command-line tool: pick the model/object, renderer,
-// projection, resolution, camera azimuth/elevation, frame count, and background,
-// then write a PNG.
+// fixture), this is a general command-line tool: pick the model/object,
+// renderer, projection, resolution, camera azimuth/elevation, frame count, and
+// background, then write a PNG.
 //
 //   IBRTOfflineRender <db.g> <object|auto> <output.png> [options]
 //     --renderer   scivis|pathtracer|ao   (default: pathtracer)
@@ -16,12 +16,21 @@
 //     --frames N                          (default: 64 accumulation frames)
 //     --pixel-samples N                   (default: 4)
 //     --up z|y                            (default: z)
-//     --show-sky                          (draw the environment; default hides it
+//     --show-sky                          (draw the environment; default hides
+//     it
 //                                          for a clean white background)
+//     --hidden-lines off|overlay|only     (default: off)
+//     --cell-plot                         composite the runtime cell-plot
+//     plugin
+//     --cell-plot-columns N               (default: 100)
+//     --cell-plot-rows N                  (default: 100)
+//     --cell-plot-plugin PATH             explicit plugin library (optional)
 //
 // "object" may be "auto" to pick a sensible top-level object automatically.
 
+#include <QCoreApplication>
 #include <QImage>
+#include <QPainter>
 
 #include <algorithm>
 #include <chrono>
@@ -36,7 +45,9 @@
 #include <ospray/ospray.h>
 
 #include "cameramath.h"
+#include "cellplotpluginloader.h"
 #include "ospraybackend.h"
+#include "renderappearance.h"
 
 namespace cameramath = ibrt::cameramath;
 
@@ -58,6 +69,12 @@ struct Options
   int pixelSamples = 4;
   cameramath::UpAxis up = cameramath::UpAxis::Z;
   bool showSky = false;
+  ibrt::render::HiddenLineMode hiddenLineMode =
+      ibrt::render::HiddenLineMode::Disabled;
+  bool cellPlot = false;
+  int cellPlotColumns = ibrt::cellplot::kDefaultGridColumns;
+  int cellPlotRows = ibrt::cellplot::kDefaultGridRows;
+  std::string cellPlotPlugin;
 };
 
 void ensureOsprayLoadModule(const char *moduleName)
@@ -103,7 +120,8 @@ bool parseArgs(int argc, char **argv, Options &opt)
       const char *v = next(a);
       if (!v)
         return false;
-      opt.orthographic = (std::strcmp(v, "orthographic") == 0 || std::strcmp(v, "ortho") == 0);
+      opt.orthographic =
+          (std::strcmp(v, "orthographic") == 0 || std::strcmp(v, "ortho") == 0);
     } else if (wantsArg(a, "--width")) {
       const char *v = next(a);
       if (!v)
@@ -148,6 +166,41 @@ bool parseArgs(int argc, char **argv, Options &opt)
           : cameramath::UpAxis::Z;
     } else if (wantsArg(a, "--show-sky")) {
       opt.showSky = true;
+    } else if (wantsArg(a, "--hidden-lines")) {
+      const char *v = next(a);
+      if (!v)
+        return false;
+      if (std::strcmp(v, "overlay") == 0) {
+        opt.hiddenLineMode = ibrt::render::HiddenLineMode::Overlay;
+      } else if (std::strcmp(v, "only") == 0
+          || std::strcmp(v, "edges") == 0) {
+        opt.hiddenLineMode = ibrt::render::HiddenLineMode::EdgesOnly;
+      } else if (std::strcmp(v, "off") == 0
+          || std::strcmp(v, "none") == 0) {
+        opt.hiddenLineMode = ibrt::render::HiddenLineMode::Disabled;
+      } else {
+        std::fprintf(stderr,
+            "Unknown hidden-line mode: %s (expected off, overlay, or only)\n",
+            v);
+        return false;
+      }
+    } else if (wantsArg(a, "--cell-plot")) {
+      opt.cellPlot = true;
+    } else if (wantsArg(a, "--cell-plot-columns")) {
+      const char *v = next(a);
+      if (!v)
+        return false;
+      opt.cellPlotColumns = std::clamp(std::atoi(v), 1, 1024);
+    } else if (wantsArg(a, "--cell-plot-rows")) {
+      const char *v = next(a);
+      if (!v)
+        return false;
+      opt.cellPlotRows = std::clamp(std::atoi(v), 1, 1024);
+    } else if (wantsArg(a, "--cell-plot-plugin")) {
+      const char *v = next(a);
+      if (!v)
+        return false;
+      opt.cellPlotPlugin = v;
     } else {
       std::fprintf(stderr, "Unknown option: %s\n", a);
       return false;
@@ -166,8 +219,8 @@ bool parseArgs(int argc, char **argv, Options &opt)
 }
 
 // Picks a reasonable top-level object when the caller passes "auto": prefer one
-// whose name matches the database file stem (e.g. toyjeep.g -> "toyjeep"), then a
-// conventional "all"/"all.g" assembly, otherwise the first listed object.
+// whose name matches the database file stem (e.g. toyjeep.g -> "toyjeep"), then
+// a conventional "all"/"all.g" assembly, otherwise the first listed object.
 std::string chooseObject(OsprayBackend &backend, const std::string &db)
 {
   const std::vector<std::string> objects = backend.listBrlcadObjects(db);
@@ -210,11 +263,11 @@ bool renderUntilReady(OsprayBackend &backend, uint64_t targetFrames)
   return false;
 }
 
-bool saveViewportPng(const std::string &path, const OsprayBackend &backend)
+QImage makeViewportImage(const OsprayBackend &backend)
 {
   const uint32_t *pixels = backend.pixels();
   if (!pixels || backend.width() <= 0 || backend.height() <= 0)
-    return false;
+    return {};
 
   QImage image(backend.width(), backend.height(), QImage::Format_RGB888);
   for (int y = 0; y < backend.height(); ++y) {
@@ -228,6 +281,86 @@ bool saveViewportPng(const std::string &path, const OsprayBackend &backend)
       dst[x * 3 + 1] = static_cast<unsigned char>((packed >> 8) & 0xffu);
       dst[x * 3 + 2] = static_cast<unsigned char>(packed & 0xffu);
     }
+  }
+  return image;
+}
+
+bool evaluateCellPlot(const Options &opt,
+    const std::string &object,
+    const rkcommon::math::vec3f &eye,
+    const rkcommon::math::vec3f &center,
+    const rkcommon::math::vec3f &up,
+    QImage &overlay)
+{
+  CellPlotPluginLoader loader;
+  const QString explicitPath = QString::fromStdString(opt.cellPlotPlugin);
+  if (!loader.discover(explicitPath)) {
+    std::fprintf(stderr, "%s\n", loader.status().toUtf8().constData());
+    return false;
+  }
+
+  auto *plugin = loader.plugin();
+  QString loadError;
+  if (!plugin->loadScene(QString::fromStdString(opt.db),
+          QString::fromStdString(object),
+          loadError)) {
+    std::fprintf(stderr,
+        "Cell-plot scene load failed: %s\n",
+        loadError.toUtf8().constData());
+    return false;
+  }
+
+  const rkcommon::math::vec3f forward = center - eye;
+  const double focusDistance = std::sqrt(double(forward.x) * forward.x
+      + double(forward.y) * forward.y + double(forward.z) * forward.z);
+  ibrt::cellplot::Request request;
+  request.columns = opt.cellPlotColumns;
+  request.rows = opt.cellPlotRows;
+  request.camera.position = {eye.x, eye.y, eye.z};
+  request.camera.forward = {forward.x, forward.y, forward.z};
+  request.camera.up = {up.x, up.y, up.z};
+  request.camera.verticalFovDegrees = opt.fovy;
+  request.camera.aspectRatio = double(opt.width) / double(opt.height);
+  request.camera.focusDistance = std::max(focusDistance, 1e-9);
+  request.camera.orthographic = opt.orthographic;
+
+  const ibrt::cellplot::Result cellPlot = plugin->evaluate(request, nullptr);
+  const std::uint64_t expectedRays =
+      std::uint64_t(request.columns) * std::uint64_t(request.rows);
+  if (!cellPlot.error.isEmpty() || cellPlot.cancelled
+      || cellPlot.raysTraced != expectedRays || cellPlot.cellsHit == 0
+      || cellPlot.overlay.isNull()) {
+    std::fprintf(stderr,
+        "Cell-plot evaluation failed: error='%s', rays=%llu/%llu, hits=%llu\n",
+        cellPlot.error.toUtf8().constData(),
+        static_cast<unsigned long long>(cellPlot.raysTraced),
+        static_cast<unsigned long long>(expectedRays),
+        static_cast<unsigned long long>(cellPlot.cellsHit));
+    return false;
+  }
+
+  overlay = cellPlot.overlay;
+  std::printf("Cell plot: %s via %s, %llu/%llu cells hit\n",
+      plugin->name().toUtf8().constData(),
+      loader.libraryPath().toUtf8().constData(),
+      static_cast<unsigned long long>(cellPlot.cellsHit),
+      static_cast<unsigned long long>(cellPlot.raysTraced));
+  return true;
+}
+
+bool saveViewportPng(const std::string &path,
+    const OsprayBackend &backend,
+    const QImage &overlay)
+{
+  QImage image = makeViewportImage(backend);
+  if (image.isNull())
+    return false;
+
+  if (!overlay.isNull()) {
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    painter.drawImage(image.rect(), overlay);
   }
   return image.save(QString::fromStdString(path), "PNG");
 }
@@ -249,6 +382,9 @@ int main(int argc, char **argv)
     return 1;
   }
 
+  int qtArgc = 1;
+  QCoreApplication qtApp(qtArgc, argv);
+
   int result = 1;
   {
     OSPDevice device = ospNewDevice("cpu");
@@ -260,6 +396,13 @@ int main(int argc, char **argv)
 
       OsprayBackend backend;
       backend.init();
+      const auto worldUp =
+          cameramath::worldUp<rkcommon::math::vec3f>(opt.up);
+      backend.setWorldUp(worldUp);
+      const auto referenceBackground =
+          ibrt::renderappearance::kReferenceBackground;
+      backend.setOpaqueBackgroundColor(rkcommon::math::vec3f(
+          referenceBackground.r, referenceBackground.g, referenceBackground.b));
       backend.setSettingsMode(OsprayBackend::SettingsMode::Custom);
       backend.setCustomStartScale(1);
       backend.setCustomAccumulationEnabled(true);
@@ -271,19 +414,23 @@ int main(int argc, char **argv)
       backend.setProjectionMode(opt.orthographic
               ? OsprayBackend::ProjectionMode::Orthographic
               : OsprayBackend::ProjectionMode::Perspective);
-      // White background: keep the (default white) backgroundColor and hide the
-      // environment so escaped rays are not tinted by the sky dome.
+      // White background: hide the environment unless explicitly requested so
+      // escaped rays are not tinted by the sky dome.
       backend.setEnvironmentVisible(opt.showSky);
+      backend.setHiddenLineMode(opt.hiddenLineMode);
 
-      const std::string object =
-          (opt.object == "auto" || opt.object == "-")
+      const std::string object = (opt.object == "auto" || opt.object == "-")
           ? chooseObject(backend, opt.db)
           : opt.object;
       if (object.empty()) {
-        std::fprintf(stderr, "No selectable object found in %s\n", opt.db.c_str());
+        std::fprintf(
+            stderr, "No selectable object found in %s\n", opt.db.c_str());
       } else if (!backend.loadBrlcad(opt.db, object)) {
-        std::fprintf(stderr, "Load failed (%s / %s): %s\n", opt.db.c_str(),
-            object.c_str(), backend.lastError().c_str());
+        std::fprintf(stderr,
+            "Load failed (%s / %s): %s\n",
+            opt.db.c_str(),
+            object.c_str(),
+            backend.lastError().c_str());
       } else {
         using vec3f = rkcommon::math::vec3f;
         const vec3f center = backend.getBoundsCenter();
@@ -293,25 +440,48 @@ int main(int argc, char **argv)
         const vec3f eyeDir =
             cameramath::eyeDirectionFromAzEl<vec3f>(opt.az, opt.el, opt.up);
         const vec3f eye = center + distance * eyeDir;
-        const vec3f up = cameramath::worldUp<vec3f>(opt.up);
-        backend.setCamera(eye, center, up, opt.fovy);
+        backend.setCamera(eye, center, worldUp, opt.fovy);
         backend.resetAccumulation();
 
         std::printf(
-            "Rendering %s (%s) %dx%d %s %s az/el=%.0f/%.0f frames=%d ...\n",
-            opt.db.c_str(), object.c_str(), opt.width, opt.height,
+            "Rendering %s (%s) %dx%d %s %s hidden-lines=%s "
+            "az/el=%.0f/%.0f frames=%d ...\n",
+            opt.db.c_str(),
+            object.c_str(),
+            opt.width,
+            opt.height,
             opt.renderer.c_str(),
-            opt.orthographic ? "orthographic" : "perspective", opt.az, opt.el,
+            opt.orthographic ? "orthographic" : "perspective",
+            opt.hiddenLineMode == ibrt::render::HiddenLineMode::Overlay
+                ? "overlay"
+                : (opt.hiddenLineMode
+                            == ibrt::render::HiddenLineMode::EdgesOnly
+                        ? "only"
+                        : "off"),
+            opt.az,
+            opt.el,
             opt.frames);
 
         if (!renderUntilReady(backend, uint64_t(opt.frames))) {
           std::fprintf(stderr, "Render timed out.\n");
-        } else if (!saveViewportPng(opt.output, backend)) {
-          std::fprintf(stderr, "Could not write PNG: %s\n", opt.output.c_str());
         } else {
-          std::printf("Wrote %dx%d image: %s\n", opt.width, opt.height,
-              opt.output.c_str());
-          result = 0;
+          QImage cellPlotOverlay;
+          const bool cellPlotReady = !opt.cellPlot
+              || evaluateCellPlot(
+                  opt, object, eye, center, worldUp, cellPlotOverlay);
+          if (!cellPlotReady) {
+            std::fprintf(stderr, "Cell-plot overlay generation failed.\n");
+          } else if (!saveViewportPng(opt.output, backend, cellPlotOverlay)) {
+            std::fprintf(
+                stderr, "Could not write PNG: %s\n", opt.output.c_str());
+          } else {
+            std::printf("Wrote %dx%d image%s: %s\n",
+                opt.width,
+                opt.height,
+                opt.cellPlot ? " with cell plot" : "",
+                opt.output.c_str());
+            result = 0;
+          }
         }
       }
     }
