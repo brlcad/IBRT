@@ -20,7 +20,9 @@
 #include "colorramp.h"
 #include "ibrt_constants.h"
 #include "imagecompare.h"
+#include "hiddenlineeffect.h"
 #include "ipc_wire.h"
+#include <ibrt/cellplotmath.h>
 
 namespace {
 
@@ -203,6 +205,100 @@ void testImageCompare()
   check(!imagesMatch(nullptr, b, w, h), "null buffer does not match");
 }
 
+void testCellPlotMath()
+{
+  using namespace ibrt::cellplot;
+
+  Camera camera;
+  camera.position = {0.0, 0.0, 5.0};
+  camera.forward = {0.0, 0.0, -1.0};
+  camera.up = {0.0, 1.0, 0.0};
+  camera.verticalFovDegrees = 90.0;
+  camera.aspectRatio = 1.0;
+  camera.focusDistance = 1.0;
+
+  Ray center = rayForCell(camera, 0, 0, 1, 1);
+  check(std::fabs(center.direction.x) < 1e-9
+          && std::fabs(center.direction.y) < 1e-9
+          && std::fabs(center.direction.z + 1.0) < 1e-9,
+      "cell plot center perspective ray follows camera forward");
+
+  Ray upperLeft = rayForCell(camera, 0, 0, 2, 2);
+  check(upperLeft.direction.x < 0.0 && upperLeft.direction.y > 0.0
+          && upperLeft.direction.z < 0.0,
+      "cell plot upper-left perspective ray has display-aligned orientation");
+
+  camera.orthographic = true;
+  Ray orthoUpperLeft = rayForCell(camera, 0, 0, 2, 2);
+  check(std::fabs(orthoUpperLeft.direction.x) < 1e-9
+          && std::fabs(orthoUpperLeft.direction.y) < 1e-9
+          && std::fabs(orthoUpperLeft.direction.z + 1.0) < 1e-9,
+      "orthographic cell rays stay parallel");
+  check(orthoUpperLeft.origin.x < camera.position.x
+          && orthoUpperLeft.origin.y > camera.position.y,
+      "orthographic cell ray origin moves across the view plane");
+
+  const Rgba region7 = colorForRegionId(7);
+  const Rgba region7Again = colorForRegionId(7);
+  const Rgba region8 = colorForRegionId(8);
+  check(region7.r == region7Again.r && region7.g == region7Again.g
+          && region7.b == region7Again.b,
+      "region hash color is deterministic");
+  check(region7.r != region8.r || region7.g != region8.g || region7.b != region8.b,
+      "neighboring region ids receive different hash colors");
+  check(region7.r >= 64 && region7.g >= 64 && region7.b >= 64 && region7.a == 176,
+      "region hash color is visible and has overlay alpha");
+}
+
+void testHiddenLineEffect()
+{
+  using namespace ibrt::render;
+
+  HiddenLineSettings settings;
+  settings.maxDistance = 1.0f;
+  std::vector<HiddenLineSample> samples(9);
+  for (HiddenLineSample &sample : samples) {
+    sample.hit = true;
+    sample.regionId = 7;
+    sample.regionKey = 17;
+    sample.distance = 10.0f;
+    sample.normalZ = 1.0f;
+  }
+
+  std::vector<std::uint8_t> mask =
+      detectHiddenLineEdges(samples.data(), 3, 3, settings);
+  check(mask.size() == 9, "hidden-line mask dimensions");
+  check(mask[4] == 0, "uniform interior is not an edge");
+  check(mask[0] != 0, "frame-border silhouette is an edge");
+
+  samples[4].regionId = 8;
+  mask = detectHiddenLineEdges(samples.data(), 3, 3, settings);
+  check(mask[4] != 0, "region-id discontinuity is an edge");
+
+  samples[4].regionId = 7;
+  samples[4].distance = 12.0f;
+  mask = detectHiddenLineEdges(samples.data(), 3, 3, settings);
+  check(mask[4] != 0, "depth discontinuity is an edge");
+
+  samples[4].distance = 10.0f;
+  samples[4].normalZ = -1.0f;
+  mask = detectHiddenLineEdges(samples.data(), 3, 3, settings);
+  check(mask[4] != 0, "normal discontinuity is an edge");
+
+  std::uint32_t pixels[3] = {0xff112233u, 0xff445566u, 0xff778899u};
+  const std::uint8_t edgeMask[3] = {0, 1, 0};
+  compositeHiddenLineEdges(
+      pixels, 3, edgeMask, HiddenLineMode::Overlay, settings);
+  check(pixels[0] == 0xff112233u && pixels[1] == settings.lineColor,
+      "hidden-line overlay preserves non-edge pixels");
+  compositeHiddenLineEdges(
+      pixels, 3, edgeMask, HiddenLineMode::EdgesOnly, settings);
+  check(pixels[0] == settings.backgroundColor
+          && pixels[1] == settings.lineColor
+          && pixels[2] == settings.backgroundColor,
+      "edge-only mode replaces the base frame");
+}
+
 } // namespace
 
 int main()
@@ -211,6 +307,8 @@ int main()
   testColorRamp();
   testCameraMath();
   testImageCompare();
+  testCellPlotMath();
+  testHiddenLineEffect();
 
   std::printf("IBRTUnitTests: %d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
