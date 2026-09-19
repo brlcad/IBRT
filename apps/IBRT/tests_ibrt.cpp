@@ -67,6 +67,7 @@ class IbrtTests : public QObject
   void integrationBackendBrlcadToOsprayProducesGeometry();
   void integrationBackendValidBrlcadSceneDoesNotUseDefaultBounds();
   void integrationBackendRenderProducesNonEmptyFrame();
+  void integrationBackendPathTracerHorizonFollowsWorldUp();
   void integrationBackendAccumulatedSilhouettesStayOpaque();
   void integrationBackendHeadlessMossRenderWritesReferenceImages();
   void integrationBackendRenderProducesConsistentFrameForSameInput();
@@ -305,6 +306,44 @@ FrameColorStats collectSrgbaStats(const std::vector<uint32_t> &pixels)
 
   stats.uniqueColors = uniqueColors.size();
   return stats;
+}
+
+int strongestMeanRowTransition(const std::vector<uint32_t> &pixels,
+    int width,
+    int height,
+    int xBegin,
+    int xEnd)
+{
+  if (width <= 0 || height <= 1
+      || pixels.size() != size_t(width) * size_t(height)) {
+    return -1;
+  }
+
+  xBegin = std::clamp(xBegin, 0, width - 1);
+  xEnd = std::clamp(xEnd, xBegin + 1, width);
+  auto meanRowLuma = [&](int y) {
+    std::uint64_t sum = 0;
+    for (int x = xBegin; x < xEnd; ++x) {
+      const uint32_t pixel = pixels[size_t(y) * size_t(width) + size_t(x)];
+      sum += (pixel & 0xffu) + ((pixel >> 8) & 0xffu)
+          + ((pixel >> 16) & 0xffu);
+    }
+    return double(sum) / double(xEnd - xBegin);
+  };
+
+  int strongestRow = -1;
+  double strongestDelta = -1.0;
+  double previous = meanRowLuma(0);
+  for (int y = 1; y < height; ++y) {
+    const double current = meanRowLuma(y);
+    const double delta = std::fabs(current - previous);
+    if (delta > strongestDelta) {
+      strongestDelta = delta;
+      strongestRow = y;
+    }
+    previous = current;
+  }
+  return strongestRow;
 }
 
 QString describeStats(const FrameColorStats &stats)
@@ -706,6 +745,76 @@ void IbrtTests::integrationBackendRenderProducesNonEmptyFrame()
     return;
 
   QVERIFY(frameHasNonZeroPixel(pixels.data(), backend.width(), backend.height()));
+}
+
+void IbrtTests::integrationBackendPathTracerHorizonFollowsWorldUp()
+{
+  constexpr int width = 160;
+  constexpr int height = 96;
+
+  OsprayBackend backend;
+  backend.init();
+  QTemporaryDir sceneDir;
+  QVERIFY(sceneDir.isValid());
+  const QString objPath = sceneDir.filePath(QStringLiteral("offscreen.obj"));
+  QFile objFile(objPath);
+  QVERIFY(objFile.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  QCOMPARE(objFile.write("v 1000 1000 1000\n"
+                         "v 1001 1000 1000\n"
+                         "v 1000 1001 1000\n"
+                         "f 1 2 3\n"),
+      qint64(59));
+  objFile.close();
+  QVERIFY(backend.loadObj(objPath.toStdString()));
+  backend.setSettingsMode(OsprayBackend::SettingsMode::Custom);
+  backend.setCustomStartScale(1);
+  backend.setCustomAccumulationEnabled(false);
+  backend.setCustomFullResAccumulationOnly(false);
+  backend.setAoSamples(0);
+  backend.setPixelSamples(1);
+  backend.setMaxPathLength(1);
+  backend.resize(width, height);
+  backend.setRenderer("pathtracer");
+  backend.setEnvironmentVisible(true);
+
+  struct AxisCase
+  {
+    const char *name;
+    rkcommon::math::vec3f worldUp;
+    rkcommon::math::vec3f eye;
+  };
+  const AxisCase axes[] = {
+      {"Z-up", {0.f, 0.f, 1.f}, {0.f, -5.f, 0.f}},
+      {"Y-up", {0.f, 1.f, 0.f}, {0.f, 0.f, -5.f}},
+  };
+
+  for (const AxisCase &axis : axes) {
+    backend.setWorldUp(axis.worldUp);
+    backend.setCamera(
+        axis.eye, rkcommon::math::vec3f(0.f), axis.worldUp, 60.f);
+    backend.resetAccumulation();
+
+    const auto pixels = renderUntilImageReady(backend, 300);
+    QVERIFY2(!pixels.empty(), axis.name);
+
+    // Average broad edge bands to suppress path-tracing noise and avoid the
+    // small fallback mesh in the center. A level camera must see the procedural
+    // sky/ground transition at the same row on both sides of the image.
+    const int leftBoundary =
+        strongestMeanRowTransition(pixels, width, height, 0, width / 4);
+    const int rightBoundary = strongestMeanRowTransition(
+        pixels, width, height, 3 * width / 4, width);
+    const QByteArray diagnostic = QStringLiteral(
+        "%1 path-traced horizon rows: left=%2 right=%3 expected=%4")
+                                      .arg(QString::fromLatin1(axis.name))
+                                      .arg(leftBoundary)
+                                      .arg(rightBoundary)
+                                      .arg(height / 2)
+                                      .toLocal8Bit();
+    QVERIFY2(leftBoundary >= 0 && rightBoundary >= 0, diagnostic.constData());
+    QVERIFY2(std::abs(leftBoundary - rightBoundary) <= 2, diagnostic.constData());
+    QVERIFY2(std::abs(leftBoundary - height / 2) <= 3, diagnostic.constData());
+  }
 }
 
 void IbrtTests::integrationBackendAccumulatedSilhouettesStayOpaque()
@@ -1258,6 +1367,7 @@ void IbrtTests::unitQualitySettingsMirrorBackendToWorkerState()
   backend.setCustomFullResAccumulationOnly(false);
   backend.setCustomWatchdogTimeoutMs(2222);
   backend.setWorldUp(rkcommon::math::vec3f(0.f, 1.f, 0.f));
+  backend.setHiddenLineMode(ibrt::render::HiddenLineMode::Overlay);
 
   RenderWorkerClient::RenderSettingsState settings;
   ibrt::qualitysettings::mirrorBackendSettingsToWorkerState(backend, settings);
@@ -1281,6 +1391,7 @@ void IbrtTests::unitQualitySettingsMirrorBackendToWorkerState()
   QCOMPARE(settings.worldUpX, 0.0f);
   QCOMPARE(settings.worldUpY, 1.0f);
   QCOMPARE(settings.worldUpZ, 0.0f);
+  QCOMPARE(settings.hiddenLineMode, 1);
 }
 
 void IbrtTests::unitInteractionControllerClassifiesDocumentedChords()
