@@ -2,10 +2,17 @@
 ## SPDX-License-Identifier: MIT
 
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTORCC ON)
+# IBRT has no .ui or .qrc inputs.  Leaving these generators enabled makes
+# CMake probe unused Qt build tools on every configure and needlessly expands
+# the runtime toolchain required by headless-only builds.
+set(CMAKE_AUTOUIC OFF)
+set(CMAKE_AUTORCC OFF)
 
 set(_ibrt_render_core_sources
+  hiddenlineeffect.cpp
+  hiddenlineeffect.h
+  hiddenlinerenderer.cpp
+  hiddenlinerenderer.h
   ospraybackend.cpp
   ospraybackend.h
   renderappearance.h
@@ -27,6 +34,10 @@ set(_ibrt_ui_logic_sources
 )
 
 set(_ibrt_viewer_sources
+  cellplotoverlaycontroller.cpp
+  cellplotoverlaycontroller.h
+  cellplotpluginloader.cpp
+  cellplotpluginloader.h
   main.cpp
   mainwindow.cpp
   mainwindow.h
@@ -152,6 +163,19 @@ function(ibrt_deploy_worker companion)
   endif()
 endfunction()
 
+function(ibrt_deploy_cell_plot_plugin target)
+  if(TARGET ibrt_cell_plot_plugin)
+    add_dependencies(${target} ibrt_cell_plot_plugin)
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:${target}>/plugins/visualizations"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:ibrt_cell_plot_plugin>"
+        "$<TARGET_FILE_DIR:${target}>/plugins/visualizations/$<TARGET_FILE_NAME:ibrt_cell_plot_plugin>"
+      COMMENT "Deploying prototype cell-plot plugin for ${target}...")
+  endif()
+endfunction()
+
 function(ibrt_deploy_demo_models target)
   set(_db_dir "${BRLCAD_PREFIX}/share/db")
   if(NOT EXISTS "${_db_dir}")
@@ -235,6 +259,7 @@ if(IBRT_BUILD_VIEWER)
   )
 
   target_include_directories(IBRT PRIVATE
+    "${PROJECT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/imgui"
     "${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends"
   )
@@ -250,6 +275,7 @@ if(IBRT_BUILD_VIEWER)
   ibrt_deploy_runtime_bundle(IBRT)
   ibrt_deploy_brl_cad_module(IBRT)
   ibrt_deploy_worker(IBRT)
+  ibrt_deploy_cell_plot_plugin(IBRT)
   ibrt_deploy_demo_models(IBRT)
 
   if(WIN32)
@@ -294,8 +320,11 @@ ibrt_deploy_brl_cad_module(IBRTReferenceRender)
 # projection, resolution, camera az/el, frames, background.
 add_executable(IBRTOfflineRender
   ${_ibrt_render_core_sources}
+  cellplotpluginloader.cpp
+  cellplotpluginloader.h
   offline_render.cpp
 )
+target_include_directories(IBRTOfflineRender PRIVATE "${PROJECT_SOURCE_DIR}/include")
 target_link_libraries(IBRTOfflineRender PRIVATE
   Qt6::Core
   Qt6::Gui
@@ -303,6 +332,7 @@ target_link_libraries(IBRTOfflineRender PRIVATE
 ibrt_configure_target(IBRTOfflineRender)
 ibrt_deploy_runtime_bundle(IBRTOfflineRender)
 ibrt_deploy_brl_cad_module(IBRTOfflineRender)
+ibrt_deploy_cell_plot_plugin(IBRTOfflineRender)
 
 if(IBRT_BUILD_TESTS AND BUILD_TESTING)
   set(_ibrt_moss_db "${BRLCAD_PREFIX}/share/db/moss.g")
@@ -315,6 +345,40 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
         "-DIBRT_REFERENCE=${PROJECT_SOURCE_DIR}/reference/d6e65f2dfad346ac7ae806a8d9834f20c72ceb02/moss-all_scivis_1200x900.png"
         -P "${PROJECT_SOURCE_DIR}/cmake/IBRTVerifyReferenceRender.cmake")
     set_tests_properties(IBRTReferenceMossSciVis PROPERTIES TIMEOUT 300)
+
+    add_test(NAME IBRTOfflineHiddenLineMoss
+      COMMAND "$<TARGET_FILE:IBRTOfflineRender>"
+        "${_ibrt_moss_db}"
+        auto
+        "${CMAKE_CURRENT_BINARY_DIR}/moss-hidden-lines.png"
+        --renderer scivis
+        --width 320
+        --height 240
+        --frames 1
+        --pixel-samples 1
+        --hidden-lines only)
+    set_tests_properties(IBRTOfflineHiddenLineMoss PROPERTIES
+      TIMEOUT 300
+      LABELS integration)
+
+    if(TARGET ibrt_cell_plot_plugin)
+      add_test(NAME IBRTOfflineCellPlotMoss
+        COMMAND "$<TARGET_FILE:IBRTOfflineRender>"
+          "${_ibrt_moss_db}"
+          auto
+          "${CMAKE_CURRENT_BINARY_DIR}/moss-cell-plot.png"
+          --renderer scivis
+          --width 320
+          --height 240
+          --frames 1
+          --pixel-samples 1
+          --cell-plot
+          --cell-plot-columns 32
+          --cell-plot-rows 24)
+      set_tests_properties(IBRTOfflineCellPlotMoss PROPERTIES
+        TIMEOUT 300
+        LABELS integration)
+    endif()
   endif()
 endif()
 
@@ -354,8 +418,13 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
   # (ibrt_constants.h, ipc_wire.h, colorramp.h, cameramath.h, imagecompare.h).
   # Plain C++ with no Qt/OSPRay/BRL-CAD linkage, so it builds and runs anywhere
   # and gives quick feedback without a full app/toolchain bring-up.
-  add_executable(IBRTUnitTests tests_units.cpp)
-  target_include_directories(IBRTUnitTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_executable(IBRTUnitTests
+    hiddenlineeffect.cpp
+    hiddenlineeffect.h
+    tests_units.cpp)
+  target_include_directories(IBRTUnitTests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${PROJECT_SOURCE_DIR}/include")
   target_compile_features(IBRTUnitTests PRIVATE cxx_std_20)
   add_test(NAME IBRTUnitTests COMMAND IBRTUnitTests)
   set_tests_properties(IBRTUnitTests PROPERTIES TIMEOUT 60 LABELS unit)
