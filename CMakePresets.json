@@ -11,8 +11,8 @@
       "hidden": true,
       "description": "Release BRL-CAD + bext. Used by Release IBRT builds.",
       "cacheVariables": {
-        "BRLCAD_EXT_DIR": "C:/devtools/bext/build/everything",
-        "BRLCAD_PREFIX": "C:/devtools/brlcad.main/out/build/x64-Release"
+        "BRLCAD_EXT_DIR": "C:/devtools/bext/build/everything/Release",
+        "BRLCAD_PREFIX": "C:/devtools/brlcad/build/Release"
       }
     },
     {
@@ -20,8 +20,8 @@
       "hidden": true,
       "description": "Debug BRL-CAD + bext. You must provision these matching Debug trees.",
       "cacheVariables": {
-        "BRLCAD_EXT_DIR": "C:/devtools/bext/build/everything-debug",
-        "BRLCAD_PREFIX": "C:/devtools/brlcad.main/out/build/x64-Debug"
+        "BRLCAD_EXT_DIR": "C:/devtools/bext/build/everything/Debug",
+        "BRLCAD_PREFIX": "C:/devtools/brlcad/build/Debug"
       }
     },
     {
