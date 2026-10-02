@@ -8,3 +8,5 @@
 - Removed the vendored OSPRay source tree and upstream-only superbuild/test content.
 - Switched the build contract to `BEXT_INSTALL_DIR` plus `BRLCAD_PREFIX`.
 - Renamed the viewer location to `apps/IBRT` and kept local deployment of `ospray_module_brl_cad`.
+- Limited Windows runtime staging to transitive DLL dependencies instead of
+  copying the complete BRL-CAD and bext `bin` directories.

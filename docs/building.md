@@ -37,6 +37,19 @@ cmake -S /path/to/IBRT -B /path/to/IBRT/build/local \
 cmake --build /path/to/IBRT/build/local
 ```
 
+Runtime staging is platform-specific:
+
+- On Windows, CMake inspects each IBRT executable and its runtime-loaded modules,
+  then copies only their transitive non-system DLL dependencies beside the
+  executable. The viewer also deploys `IBRTRenderWorker`, and `windeployqt`
+  supplies Qt's runtime plugins.
+- On macOS, Linux, and other Unix platforms, the build keeps the configured
+  dependency trees on the runtime search path and stages the required local
+  OSPRay libraries and module symlinks. It does not copy a complete dependency
+  `bin` or `lib` directory.
+- On other platforms, runtime dependencies remain in their configured locations;
+  the out-of-process render worker is disabled when the platform is unsupported.
+
 The default build enables:
 
 - `IBRT`
