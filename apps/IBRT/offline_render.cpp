@@ -22,6 +22,7 @@
 //     --hidden-lines off|overlay|only     (default: off)
 //     --cell-plot                         composite the runtime cell-plot
 //     plugin
+//     --cell-plot-only                    render cells on the plain background
 //     --cell-plot-columns N               (default: 100)
 //     --cell-plot-rows N                  (default: 100)
 //     --cell-plot-plugin PATH             explicit plugin library (optional)
@@ -72,6 +73,7 @@ struct Options
   ibrt::render::HiddenLineMode hiddenLineMode =
       ibrt::render::HiddenLineMode::Disabled;
   bool cellPlot = false;
+  bool cellPlotOnly = false;
   int cellPlotColumns = ibrt::cellplot::kDefaultGridColumns;
   int cellPlotRows = ibrt::cellplot::kDefaultGridRows;
   std::string cellPlotPlugin;
@@ -186,6 +188,9 @@ bool parseArgs(int argc, char **argv, Options &opt)
       }
     } else if (wantsArg(a, "--cell-plot")) {
       opt.cellPlot = true;
+    } else if (wantsArg(a, "--cell-plot-only")) {
+      opt.cellPlot = true;
+      opt.cellPlotOnly = true;
     } else if (wantsArg(a, "--cell-plot-columns")) {
       const char *v = next(a);
       if (!v)
@@ -350,9 +355,18 @@ bool evaluateCellPlot(const Options &opt,
 
 bool saveViewportPng(const std::string &path,
     const OsprayBackend &backend,
-    const QImage &overlay)
+    const QImage &overlay,
+    bool cellPlotOnly)
 {
-  QImage image = makeViewportImage(backend);
+  QImage image;
+  if (cellPlotOnly) {
+    image = QImage(backend.width(), backend.height(), QImage::Format_RGB888);
+    image.fill(QColor::fromRgbF(ibrt::renderappearance::kReferenceBackground.r,
+        ibrt::renderappearance::kReferenceBackground.g,
+        ibrt::renderappearance::kReferenceBackground.b));
+  } else {
+    image = makeViewportImage(backend);
+  }
   if (image.isNull())
     return false;
 
@@ -471,7 +485,8 @@ int main(int argc, char **argv)
                   opt, object, eye, center, worldUp, cellPlotOverlay);
           if (!cellPlotReady) {
             std::fprintf(stderr, "Cell-plot overlay generation failed.\n");
-          } else if (!saveViewportPng(opt.output, backend, cellPlotOverlay)) {
+          } else if (!saveViewportPng(
+                         opt.output, backend, cellPlotOverlay, opt.cellPlotOnly)) {
             std::fprintf(
                 stderr, "Could not write PNG: %s\n", opt.output.c_str());
           } else {
