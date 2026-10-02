@@ -30,7 +30,9 @@ class CellPlotOverlayController final : public QObject
 
   bool isAvailable() const;
   bool isEnabled() const;
+  bool isEvaluationRunning() const;
   void setEnabled(bool enabled);
+  void cancelEvaluation();
   QString pluginName() const;
   QString status() const;
   QImage overlay() const;
@@ -60,6 +62,7 @@ class CellPlotOverlayController final : public QObject
   std::atomic_bool cancelRequested_{false};
   bool enabled_ = false;
   bool evaluationRunning_ = false;
+  bool evaluationPending_ = false;
   std::uint64_t requestedGeneration_ = 0;
   QString pendingDatabasePath_;
   QString pendingTopObject_;

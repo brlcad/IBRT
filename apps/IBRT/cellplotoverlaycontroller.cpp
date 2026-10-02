@@ -45,6 +45,11 @@ bool CellPlotOverlayController::isEnabled() const
   return enabled_;
 }
 
+bool CellPlotOverlayController::isEvaluationRunning() const
+{
+  return evaluationRunning_ || evaluationPending_ || debounceTimer_.isActive();
+}
+
 void CellPlotOverlayController::setEnabled(bool enabled)
 {
   const bool requestedState = enabled && isAvailable();
@@ -55,6 +60,7 @@ void CellPlotOverlayController::setEnabled(bool enabled)
   ++requestedGeneration_;
   if (!enabled_) {
     debounceTimer_.stop();
+    evaluationPending_ = false;
     cancelRequested_.store(true, std::memory_order_relaxed);
     overlay_ = QImage();
     raysTraced_ = 0;
@@ -68,9 +74,20 @@ void CellPlotOverlayController::setEnabled(bool enabled)
   if (pendingDatabasePath_.isEmpty()) {
     setStatus(QStringLiteral("No BRL-CAD scene"));
   } else {
+    evaluationPending_ = true;
     setStatus(QStringLiteral("Queued"));
     debounceTimer_.start();
   }
+}
+
+void CellPlotOverlayController::cancelEvaluation()
+{
+  ++requestedGeneration_;
+  debounceTimer_.stop();
+  evaluationPending_ = false;
+  cancelRequested_.store(true, std::memory_order_relaxed);
+  setStatus(evaluationRunning_ ? QStringLiteral("Cancelling...")
+                               : QStringLiteral("Cancelled"));
 }
 
 QString CellPlotOverlayController::pluginName() const
@@ -110,6 +127,7 @@ void CellPlotOverlayController::requestEvaluation(const QString &databasePath,
   if (!enabled_ || !plugin_)
     return;
 
+  evaluationPending_ = true;
   cancelRequested_.store(true, std::memory_order_relaxed);
   setStatus(QStringLiteral("Queued"));
   debounceTimer_.start();
@@ -121,6 +139,7 @@ void CellPlotOverlayController::clearScene()
   pendingTopObject_.clear();
   ++requestedGeneration_;
   debounceTimer_.stop();
+  evaluationPending_ = false;
   cancelRequested_.store(true, std::memory_order_relaxed);
   overlay_ = QImage();
   raysTraced_ = 0;
@@ -133,8 +152,10 @@ void CellPlotOverlayController::clearScene()
 
 void CellPlotOverlayController::startLatestEvaluation()
 {
-  if (!enabled_ || !plugin_ || pendingDatabasePath_.isEmpty())
+  if (!enabled_ || !plugin_ || pendingDatabasePath_.isEmpty()) {
+    evaluationPending_ = false;
     return;
+  }
 
   if (evaluationRunning_) {
     cancelRequested_.store(true, std::memory_order_relaxed);
@@ -148,6 +169,7 @@ void CellPlotOverlayController::startLatestEvaluation()
   const QString databasePath = pendingDatabasePath_;
   const QString topObject = pendingTopObject_;
   const ibrt::cellplot::Request request = pendingRequest_;
+  evaluationPending_ = false;
   cancelRequested_.store(false, std::memory_order_relaxed);
   evaluationRunning_ = true;
   setStatus(QStringLiteral("Evaluating %1 x %2 grid...")
@@ -183,24 +205,31 @@ void CellPlotOverlayController::finishEvaluation(
   evaluationRunning_ = false;
 
   const bool isLatest = generation == requestedGeneration_;
-  if (isLatest && enabled_ && !result.cancelled) {
-    if (!result.error.isEmpty()) {
-      overlay_ = QImage();
-      raysTraced_ = 0;
-      cellsHit_ = 0;
-      setStatus(result.error);
+  if (isLatest && enabled_) {
+    if (result.cancelled) {
+      setStatus(QStringLiteral("Cancelled"));
     } else {
-      overlay_ = std::move(result.overlay);
-      raysTraced_ = result.raysTraced;
-      cellsHit_ = result.cellsHit;
-      setStatus(QStringLiteral("Ready: %1/%2 cells hit")
-              .arg(cellsHit_)
-              .arg(raysTraced_));
+      if (!result.error.isEmpty()) {
+        overlay_ = QImage();
+        raysTraced_ = 0;
+        cellsHit_ = 0;
+        setStatus(result.error);
+      } else {
+        overlay_ = std::move(result.overlay);
+        raysTraced_ = result.raysTraced;
+        cellsHit_ = result.cellsHit;
+        setStatus(QStringLiteral("Ready: %1/%2 cells hit")
+                .arg(cellsHit_)
+                .arg(raysTraced_));
+      }
+      emit overlayChanged();
     }
-    emit overlayChanged();
   }
 
-  if (enabled_ && generation != requestedGeneration_)
+  if (!evaluationPending_ && status_ == QStringLiteral("Cancelling..."))
+    setStatus(QStringLiteral("Cancelled"));
+
+  if (enabled_ && evaluationPending_)
     debounceTimer_.start(0);
 }
 
