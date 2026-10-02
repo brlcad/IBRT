@@ -5,7 +5,6 @@
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QSurfaceFormat>
-#include <QTimer>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -294,12 +293,11 @@ int main(int argc, char *argv[])
     QApplication::setApplicationVersion(IBRT_VERSION);
     QApplication::setOrganizationName("BRL-CAD");
     MainWindow w;
-    w.show();
     if (!startupDatabase.isEmpty()) {
-      QTimer::singleShot(0, &w, [&w, startupDatabase]() {
-        w.openGeometryDatabase(startupDatabase);
-      });
+      w.setStartupGeometryDatabase(startupDatabase,
+          QString::fromLocal8Bit(qgetenv("IBRT_AJEM_TOP_OBJECT")).trimmed());
     }
+    w.show();
     rc = a.exec();
   }
 

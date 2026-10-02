@@ -248,7 +248,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
   }
 
   setupMenus();
-  QTimer::singleShot(0, this, [this]() { loadStartupDemo(); });
+  QTimer::singleShot(0, this, [this]() {
+    if (startupDatabasePath_.isEmpty()) {
+      loadStartupDemo();
+    } else {
+      openGeometryDatabase(startupDatabasePath_, startupTopObject_);
+    }
+  });
 }
 
 // Creates the top-level menus and connects them to viewport actions.
@@ -578,7 +584,27 @@ void MainWindow::chooseAndLoadBrlcadObject(
 }
 
 // Public entry point used when IBRT receives a .g path from a platform launcher.
-void MainWindow::openGeometryDatabase(const QString &path)
+void MainWindow::openGeometryDatabase(
+    const QString &path, const QString &topObject)
 {
+  if (!topObject.trimmed().isEmpty()) {
+    if (!renderWidget_->loadBrlcadModel(path, topObject.trimmed())) {
+      const QString detail = renderWidget_->lastError();
+      QMessageBox::warning(this,
+          "Load Failed",
+          detail.isEmpty() ? "Could not load the requested BRL-CAD object." : detail);
+      return;
+    }
+    statusBar()->showMessage(
+        QStringLiteral("Loaded BRL-CAD object: %1").arg(topObject.trimmed()), 5000);
+    return;
+  }
   chooseAndLoadBrlcadObject(path);
+}
+
+void MainWindow::setStartupGeometryDatabase(
+    const QString &path, const QString &topObject)
+{
+  startupDatabasePath_ = QFileInfo(path).absoluteFilePath();
+  startupTopObject_ = topObject.trimmed();
 }

@@ -17,8 +17,10 @@ class MainWindow : public QMainWindow
  public:
   explicit MainWindow(QWidget *parent = nullptr);
 
-  // Opens a BRL-CAD database supplied by a desktop file association or launcher.
-  void openGeometryDatabase(const QString &path);
+  // Queues a BRL-CAD database supplied by a desktop file association or
+  // launcher. A supplied top object bypasses the interactive hierarchy picker.
+  void setStartupGeometryDatabase(
+      const QString &path, const QString &topObject = QString());
 
  private:
   // The main viewport and interaction surface for scene rendering.
@@ -30,6 +32,8 @@ class MainWindow : public QMainWindow
   QAction *selectBrlcadObjectAction_ = nullptr;
   QAction *orbitModeAction_ = nullptr;
   QAction *flyModeAction_ = nullptr;
+  QString startupDatabasePath_;
+  QString startupTopObject_;
   // Menu helpers keep startup/demo logic out of the constructor.
   void setupMenus();
   void updateBrlcadMenuState();
@@ -38,4 +42,6 @@ class MainWindow : public QMainWindow
   void populateDemoModelsMenu(QMenu *menu);
   QString defaultDemoPath() const;
   void loadStartupDemo();
+  void openGeometryDatabase(
+      const QString &path, const QString &topObject = QString());
 };
