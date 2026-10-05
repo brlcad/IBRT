@@ -381,6 +381,11 @@ ibrt_deploy_brl_cad_module(IBRTOfflineRender)
 ibrt_deploy_cell_plot_plugin(IBRTOfflineRender)
 
 if(IBRT_BUILD_TESTS AND BUILD_TESTING)
+  add_executable(IBRTCompareReference compare_reference.cpp)
+  target_link_libraries(IBRTCompareReference PRIVATE Qt6::Gui)
+  ibrt_configure_target(IBRTCompareReference)
+  ibrt_deploy_runtime_bundle(IBRTCompareReference)
+
   set(_ibrt_moss_db "${BRLCAD_PREFIX}/share/db/moss.g")
   if(EXISTS "${_ibrt_moss_db}")
     add_test(NAME IBRTReferenceMossSciVis
@@ -388,7 +393,8 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
         "-DIBRT_RENDERER=$<TARGET_FILE:IBRTReferenceRender>"
         "-DIBRT_MOSS_DB=${_ibrt_moss_db}"
         "-DIBRT_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/test-artifacts/moss-reference.png"
-        "-DIBRT_REFERENCE=${PROJECT_SOURCE_DIR}/reference/d6e65f2dfad346ac7ae806a8d9834f20c72ceb02/moss-all_scivis_1200x900.png"
+        "-DIBRT_REFERENCE=${PROJECT_SOURCE_DIR}/reference/2026-10-02-current-render/moss-all_scivis_1200x900.png"
+        "-DIBRT_COMPARATOR=$<TARGET_FILE:IBRTCompareReference>"
         -P "${PROJECT_SOURCE_DIR}/cmake/IBRTVerifyReferenceRender.cmake")
     set_tests_properties(IBRTReferenceMossSciVis PROPERTIES TIMEOUT 300)
 
@@ -472,6 +478,8 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
   add_executable(IBRTUnitTests
     hiddenlineeffect.cpp
     hiddenlineeffect.h
+    worker_ipc.cpp
+    worker_ipc.h
     tests_units.cpp)
   target_include_directories(IBRTUnitTests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
