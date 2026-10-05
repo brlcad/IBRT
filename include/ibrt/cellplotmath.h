@@ -84,10 +84,14 @@ inline Ray rayForCell(
   const double xNdc = 2.0 * (double(column) + 0.5) / double(safeColumns) - 1.0;
   const double yNdc = 1.0 - 2.0 * (double(row) + 0.5) / double(safeRows);
 
-  const Vec3 forward = normalized(camera.forward);
+  Vec3 forward = normalized(camera.forward);
+  if (dot(forward, forward) <= 1e-15)
+    forward = {0.0, 0.0, -1.0};
   Vec3 right = normalized(cross(forward, camera.up));
   if (dot(right, right) <= 1e-15)
-    right = {1.0, 0.0, 0.0};
+    right = normalized(cross(forward,
+        std::fabs(forward.z) < 0.9 ? Vec3{0.0, 0.0, 1.0}
+                                   : Vec3{0.0, 1.0, 0.0}));
   const Vec3 up = normalized(cross(right, forward));
   const double halfFovRadians =
       std::clamp(camera.verticalFovDegrees, 0.01, 179.0)
