@@ -48,6 +48,7 @@ set(BRLCAD_PREFIX "" CACHE PATH "Path to the BRL-CAD install prefix")
 
 include(IBRTDependencies)
 ibrt_configure_dependencies()
+include(IBRTRuntimeDeployment)
 
 add_subdirectory(plugins)
 add_subdirectory(apps)
