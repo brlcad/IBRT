@@ -95,6 +95,61 @@ The generator is **not** fixed by the presets, so the same preset works with
 Ninja, Visual Studio, or another generator — pick one with `-G`, the
 `CMAKE_GENERATOR` environment variable, or your IDE.
 
+## Intel oneAPI on Linux
+
+IntelLLVM 2026.2 has been validated with the viewer, both plugins, render
+worker, offline renderer, and all six CTest targets. Build bext and
+BRL-CAD with the same Intel toolchain and Release configuration first.
+See the [bext setup instructions](https://github.com/BRL-CAD/bext/blob/main/INSTALL.md#intel-oneapi-on-linux)
+and BRL-CAD's `doc/README.Linux` for oneAPI initialization and the optional
+native GCC runtime-selection wrappers.
+
+Use the same initialized Bash shell and exported `CC` and `CXX` compiler
+paths. From the IBRT source directory, with sibling bext and BRL-CAD
+checkouts:
+
+```sh
+bext_build="$(cd ../bext/.build_intel && pwd)"
+brlcad_prefix="$(cd ../brlcad/.build_intel/install && pwd)"
+cmake -S . -B .build_intel -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+  -DCMAKE_C_FLAGS:STRING=-fno-fast-math \
+  -DCMAKE_CXX_FLAGS:STRING=-fno-fast-math \
+  -DBEXT_INSTALL_DIR="$bext_build/install" \
+  -DBRLCAD_PREFIX="$brlcad_prefix"
+cmake --build .build_intel --parallel 4
+```
+
+The explicit arithmetic flags match BRL-CAD's precise floating-point
+settings. Keep them when using IntelLLVM for reproducible geometry and
+image calculations.
+
+For headless tests with Xvfb:
+
+```sh
+xvfb-run -a -s '-screen 0 1280x1024x24' \
+  env LIBGL_ALWAYS_SOFTWARE=1 \
+  ctest --test-dir .build_intel --parallel 2 --output-on-failure
+```
+
+The tests include the Moss reference-image comparison, both offline
+visualization modes, plugin loading, and worker integration. The reference
+render is written to
+`.build_intel/apps/IBRT/test-artifacts/moss-reference.png`.
+
+Initialize oneAPI in each new shell before building, testing, or launching
+the viewer:
+
+```sh
+source "$oneapi_root/setvars.sh"
+.build_intel/apps/IBRT/IBRT
+```
+
+Set `oneapi_root` to the oneAPI installation directory. The configured
+runtime search paths locate bext and BRL-CAD, while the oneAPI environment
+supplies Intel shared libraries such as `libsvml` and `libimf`.
+
 ## Presets
 
 The committed [CMakePresets.json](../CMakePresets.json) defines:
