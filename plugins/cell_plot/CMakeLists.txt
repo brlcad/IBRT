@@ -49,6 +49,11 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
   target_include_directories(IBRTCellPlotPluginSmoke PRIVATE
     "${PROJECT_SOURCE_DIR}/include")
   target_link_libraries(IBRTCellPlotPluginSmoke PRIVATE Qt6::Core Qt6::Gui)
+  ibrt_deploy_runtime_bundle(IBRTCellPlotPluginSmoke ibrt_cell_plot_plugin)
+  if(UNIX)
+    set_target_properties(IBRTCellPlotPluginSmoke PROPERTIES
+      BUILD_RPATH "${IBRT_BEXT_LIBRARY_DIR};${IBRT_BRLCAD_LIBRARY_DIR}")
+  endif()
 
   set(_ibrt_cell_plot_moss_db "${BRLCAD_PREFIX}/share/db/moss.g")
   if(EXISTS "${_ibrt_cell_plot_moss_db}")

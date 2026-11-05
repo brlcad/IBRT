@@ -11,6 +11,7 @@
 .idea/
 .vscode/
 .build/
+/.build_intel
 .artifacts/
 OBJ/
 build/
