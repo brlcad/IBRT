@@ -45,8 +45,13 @@ Runtime staging is platform-specific:
   supplies Qt's runtime plugins.
 - On macOS, Linux, and other Unix platforms, the build keeps the configured
   dependency trees on the runtime search path and stages the required local
-  OSPRay libraries and module symlinks. It does not copy a complete dependency
-  `bin` or `lib` directory.
+  OSPRay libraries and module symlinks. When the bext SDK includes the optional
+  denoiser module, staging also includes that module and its Open Image Denoise
+  libraries, including device libraries loaded at runtime. OSPRay locates
+  modules beside its loaded core library, so the denoiser accompanies the
+  local OSPRay copy. Open Image Denoise libraries go in the sibling `lib`
+  directory to preserve their package runtime search paths. Staging does
+  not copy a complete dependency `bin` or `lib` directory.
 - On other platforms, runtime dependencies remain in their configured locations;
   the out-of-process render worker is disabled when the platform is unsupported.
 

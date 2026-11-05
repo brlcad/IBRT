@@ -337,6 +337,9 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
   )
 
   target_compile_definitions(IBRTTests PRIVATE BRLCAD_INSTALL_PREFIX="${BRLCAD_PREFIX}")
+  if(UNIX AND TARGET ospray::ospray_module_denoiser)
+    target_compile_definitions(IBRTTests PRIVATE IBRT_TEST_DENOISER)
+  endif()
   target_link_libraries(IBRTTests PRIVATE
     Qt6::Test
     Qt6::Core

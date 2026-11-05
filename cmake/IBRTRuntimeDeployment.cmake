@@ -7,6 +7,8 @@ if(UNIX)
       "${IBRT_BEXT_LIBRARY_DIR}/libospray.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/libospray.*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/libospray_module_cpu*.dylib"
+      "${IBRT_BEXT_LIBRARY_DIR}/libospray_module_denoiser*.dylib"
+      "${IBRT_BEXT_LIBRARY_DIR}/libOpenImageDenoise*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/librkcommon*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/libembree*.dylib"
       "${IBRT_BEXT_LIBRARY_DIR}/libtbb*.dylib"
@@ -16,6 +18,8 @@ if(UNIX)
     set(_ibrt_runtime_patterns
       "${IBRT_BEXT_LIBRARY_DIR}/libospray.so*"
       "${IBRT_BEXT_LIBRARY_DIR}/libospray_module_cpu.so*"
+      "${IBRT_BEXT_LIBRARY_DIR}/libospray_module_denoiser.so*"
+      "${IBRT_BEXT_LIBRARY_DIR}/libOpenImageDenoise*.so*"
       "${IBRT_BEXT_LIBRARY_DIR}/librkcommon.so*"
       "${IBRT_BEXT_LIBRARY_DIR}/libembree.so*"
       "${IBRT_BEXT_LIBRARY_DIR}/libtbb.so*"
@@ -89,20 +93,28 @@ function(ibrt_deploy_runtime_bundle target)
   elseif(UNIX)
     foreach(_lib IN LISTS _ibrt_local_ospray_runtime_libs)
       get_filename_component(_lib_name "${_lib}" NAME)
+      set(_runtime_directory "$<TARGET_FILE_DIR:${target}>")
+      if(_lib_name MATCHES "^libOpenImageDenoise")
+        # OIDN's package rpath searches ../lib from its API and device libraries.
+        # Preserve that layout so their private dependencies remain resolvable.
+        set(_runtime_directory "$<TARGET_FILE_DIR:${target}>/../lib")
+        add_custom_command(TARGET ${target} POST_BUILD
+          COMMAND ${CMAKE_COMMAND} -E make_directory "${_runtime_directory}")
+      endif()
       if(IS_SYMLINK "${_lib}")
         file(READ_SYMLINK "${_lib}" _lib_link_target)
         add_custom_command(TARGET ${target} POST_BUILD
           COMMAND ${CMAKE_COMMAND} -E rm -f
-            "$<TARGET_FILE_DIR:${target}>/${_lib_name}"
+            "${_runtime_directory}/${_lib_name}"
           COMMAND ${CMAKE_COMMAND} -E create_symlink
             "${_lib_link_target}"
-            "$<TARGET_FILE_DIR:${target}>/${_lib_name}"
+            "${_runtime_directory}/${_lib_name}"
           COMMENT "Creating local OSPRay runtime symlink ${_lib_name} for ${target}...")
       else()
         add_custom_command(TARGET ${target} POST_BUILD
           COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${_lib}"
-            "$<TARGET_FILE_DIR:${target}>/${_lib_name}"
+            "${_runtime_directory}/${_lib_name}"
           COMMENT "Copying local OSPRay runtime library ${_lib_name} for ${target}...")
       endif()
     endforeach()
