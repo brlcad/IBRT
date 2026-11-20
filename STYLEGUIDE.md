@@ -34,8 +34,7 @@ easy to evolve now that OSPRay itself lives outside this tree.
 
 ## Build System
 
-- The committed configure contract is `BEXT_INSTALL_DIR` plus
-  `BRLCAD_PREFIX`.
+- Use `BEXT_INSTALL_DIR` for bext and CMake config package discovery for BRL-CAD.
 - New runtime copy logic should deploy into this repo's build or install
   outputs only.
 - Prefer repo-owned CMake helpers in `cmake/` over scattering dependency

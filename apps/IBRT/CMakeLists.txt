@@ -68,7 +68,7 @@ elseif(UNIX)
 endif()
 
 if(UNIX)
-  set(_ibrt_runtime_rpath "${_ibrt_origin};${IBRT_BEXT_LIBRARY_DIR};${IBRT_BRLCAD_LIBRARY_DIR}")
+  set(_ibrt_runtime_rpath "${_ibrt_origin};${IBRT_BEXT_LIBRARY_DIR};${BRLCAD_LIB_DIR}")
 endif()
 
 function(ibrt_configure_target target)
@@ -76,14 +76,13 @@ function(ibrt_configure_target target)
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${OSPRAY_INCLUDE_DIR}"
     "${RKCOMMON_INCLUDE_DIRS}"
-    ${IBRT_BRLCAD_INCLUDE_DIRS}
   )
   target_link_libraries(${target} PRIVATE
     ospray::ospray
-    ${IBRT_BRLCAD_RT_LIBRARY}
-    ${IBRT_BRLCAD_BU_LIBRARY}
-    ${IBRT_BRLCAD_BN_LIBRARY}
-    ${IBRT_BRLCAD_BV_LIBRARY}
+    BRLCAD::rt
+    BRLCAD::bu
+    BRLCAD::bn
+    BRLCAD::bv
     $<$<BOOL:${WIN32}>:TBB::tbb>
   )
 
@@ -153,17 +152,12 @@ function(ibrt_deploy_cell_plot_plugin target)
 endfunction()
 
 function(ibrt_deploy_demo_models target)
-  set(_db_dir "${BRLCAD_PREFIX}/share/db")
-  if(NOT EXISTS "${_db_dir}")
-    return()
-  endif()
-
   foreach(_demo IN ITEMS moss.g havoc.g axis.g)
-    if(EXISTS "${_db_dir}/${_demo}")
+    if(EXISTS "${IBRT_BRLCAD_DB_DIR}/${_demo}")
       add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>/models"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          "${_db_dir}/${_demo}"
+          "${IBRT_BRLCAD_DB_DIR}/${_demo}"
           "$<TARGET_FILE_DIR:${target}>/models/${_demo}"
         COMMENT "Deploying demo database ${_demo} for ${target}...")
     endif()
@@ -199,7 +193,7 @@ if(IBRT_BUILD_VIEWER)
     "${CMAKE_CURRENT_SOURCE_DIR}/imgui"
     "${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends"
   )
-  target_compile_definitions(IBRT PRIVATE BRLCAD_INSTALL_PREFIX="${BRLCAD_PREFIX}")
+  target_compile_definitions(IBRT PRIVATE BRLCAD_DB_DIR="${IBRT_BRLCAD_DB_DIR}")
   target_compile_definitions(IBRT PRIVATE IBRT_VERSION="${PROJECT_VERSION}")
   target_link_libraries(IBRT PRIVATE
     Qt6::Widgets
@@ -281,7 +275,7 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
   ibrt_configure_target(IBRTCompareReference)
   ibrt_deploy_runtime_bundle(IBRTCompareReference)
 
-  set(_ibrt_moss_db "${BRLCAD_PREFIX}/share/db/moss.g")
+  set(_ibrt_moss_db "${IBRT_BRLCAD_DB_DIR}/moss.g")
   if(EXISTS "${_ibrt_moss_db}")
     add_test(NAME IBRTReferenceMossSciVis
       COMMAND "${CMAKE_COMMAND}"
@@ -336,7 +330,9 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
     ${_ibrt_test_sources}
   )
 
-  target_compile_definitions(IBRTTests PRIVATE BRLCAD_INSTALL_PREFIX="${BRLCAD_PREFIX}")
+  target_compile_definitions(IBRTTests PRIVATE
+    BRLCAD_DB_DIR="${IBRT_BRLCAD_DB_DIR}"
+    BRLCAD_MGED_EXECUTABLE="${IBRT_BRLCAD_BIN_DIR}/mged${CMAKE_EXECUTABLE_SUFFIX}")
   if(UNIX AND TARGET ospray::ospray_module_denoiser)
     target_compile_definitions(IBRTTests PRIVATE IBRT_TEST_DENOISER)
   endif()

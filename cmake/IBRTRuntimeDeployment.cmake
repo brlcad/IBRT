@@ -35,7 +35,7 @@ endif()
 if(WIN32)
   set(_ibrt_windows_runtime_search_dirs
     "${IBRT_BEXT_RUNTIME_DIR}"
-    "${IBRT_BRLCAD_RUNTIME_DIR}"
+    "${IBRT_BRLCAD_BIN_DIR}"
     "$<TARGET_FILE_DIR:Qt6::Core>")
 
   set(_ibrt_runtime_dependency_tool)

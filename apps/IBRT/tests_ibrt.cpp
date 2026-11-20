@@ -134,9 +134,8 @@ std::optional<QString> makeExampleBrlcadDb()
     return dbPath;
   }
 
-#ifdef BRLCAD_INSTALL_PREFIX
-  const QString mgedPath =
-      QDir(QStringLiteral(BRLCAD_INSTALL_PREFIX)).filePath(QStringLiteral("bin/mged"));
+#ifdef BRLCAD_MGED_EXECUTABLE
+  const QString mgedPath = QStringLiteral(BRLCAD_MGED_EXECUTABLE);
   if (!QFileInfo::exists(mgedPath))
     return std::nullopt;
 
@@ -237,9 +236,9 @@ std::optional<QString> makeExampleBrlcadDb()
 
 std::optional<QString> defaultMossDbPath()
 {
-#ifdef BRLCAD_INSTALL_PREFIX
+#ifdef BRLCAD_DB_DIR
   const QString dbPath =
-      QDir(QStringLiteral(BRLCAD_INSTALL_PREFIX)).filePath(QStringLiteral("share/db/moss.g"));
+      QDir(QStringLiteral(BRLCAD_DB_DIR)).filePath(QStringLiteral("moss.g"));
   if (QFileInfo::exists(dbPath))
     return dbPath;
 #endif

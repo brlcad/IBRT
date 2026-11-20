@@ -60,15 +60,15 @@ function(ibrt_check_dependency_runtime)
   # mismatched (a single Release bext used for both configs), so check it
   # first; the BRL-CAD runtime is a best-effort second probe.
   set(_probes "${BEXT_INSTALL_DIR}/bin/ospray.dll;bext (BEXT_INSTALL_DIR)")
-  foreach(_brlcad_dll rt bu bn)
-    foreach(_candidate
-        "${BRLCAD_PREFIX}/bin/lib${_brlcad_dll}.dll"
-        "${BRLCAD_PREFIX}/bin/${_brlcad_dll}.dll")
-      if(EXISTS "${_candidate}")
-        list(APPEND _probes "${_candidate};BRL-CAD (BRLCAD_PREFIX)")
-        break()
+  string(TOUPPER "${CMAKE_BUILD_TYPE}" _config)
+  foreach(_target IN ITEMS BRLCAD::rt BRLCAD::bu BRLCAD::bn)
+    get_target_property(_type ${_target} TYPE)
+    if(_type STREQUAL "SHARED_LIBRARY")
+      get_target_property(_binary ${_target} LOCATION_${_config})
+      if(_binary)
+        list(APPEND _probes "${_binary};${_target}")
       endif()
-    endforeach()
+    endif()
   endforeach()
 
   if(IBRT_CONFIG_IS_DEBUG)
@@ -119,7 +119,6 @@ macro(ibrt_configure_dependencies)
   endif()
 
   ibrt_require_directory(BEXT_INSTALL_DIR "the built bext install tree, e.g. <bext-build>/install; or set BRLCAD_EXT_DIR to <bext-build>")
-  ibrt_require_directory(BRLCAD_PREFIX "the BRL-CAD install prefix")
 
   if(EXISTS "${BEXT_INSTALL_DIR}/.build/install" AND EXISTS "${BEXT_INSTALL_DIR}/CMakeLists.txt")
     message(FATAL_ERROR
@@ -133,9 +132,6 @@ macro(ibrt_configure_dependencies)
       "Expected to find ${BEXT_INSTALL_DIR}/lib/cmake.")
   endif()
 
-  # Fail early and clearly on a Debug/Release dependency mismatch (Windows).
-  ibrt_check_dependency_runtime()
-
   list(PREPEND CMAKE_PREFIX_PATH "${BEXT_INSTALL_DIR}")
 
   find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets OpenGLWidgets Test)
@@ -147,6 +143,23 @@ macro(ibrt_configure_dependencies)
     find_package(TBB REQUIRED COMPONENTS tbb CONFIG)
   endif()
   find_package(ospray REQUIRED CONFIG)
+  find_package(BRLCAD CONFIG REQUIRED COMPONENTS rt bu bn bv)
+  message(STATUS "IBRT: using BRL-CAD CMake package at ${BRLCAD_CONFIG}")
+
+  ibrt_check_dependency_runtime()
+
+  set(IBRT_BRLCAD_DB_DIR "${BRLCAD_DATA_DIR}/db"
+    CACHE INTERNAL "BRL-CAD demo database directory used by the release staging script")
+
+  # The package exports no executable directory. Its standard layout places
+  # bin beside lib, and Windows shared builds place the DLLs beside the tools.
+  get_filename_component(IBRT_BRLCAD_BIN_DIR "${BRLCAD_LIB_DIR}/../bin" ABSOLUTE)
+  if(WIN32)
+    get_target_property(_brlcad_rt_type BRLCAD::rt TYPE)
+    if(_brlcad_rt_type STREQUAL "SHARED_LIBRARY")
+      set(IBRT_BRLCAD_BIN_DIR "$<TARGET_FILE_DIR:BRLCAD::rt>")
+    endif()
+  endif()
 
   if(NOT RKCOMMON_INCLUDE_DIRS)
     get_target_property(RKCOMMON_INCLUDE_DIRS rkcommon::rkcommon INTERFACE_INCLUDE_DIRECTORIES)
@@ -183,42 +196,6 @@ macro(ibrt_configure_dependencies)
     get_target_property(OPENVKL_INCLUDE_DIRS openvkl::openvkl INTERFACE_INCLUDE_DIRECTORIES)
   endif()
 
-  find_path(IBRT_BRLCAD_INCLUDE_DIR
-    NAMES brlcad/rt/db4.h
-    PATHS "${BRLCAD_PREFIX}/include"
-    NO_DEFAULT_PATH
-    REQUIRED)
-  find_library(IBRT_BRLCAD_RT_LIBRARY
-    NAMES rt librt
-    PATHS "${BRLCAD_PREFIX}/lib" "${BRLCAD_PREFIX}/lib64"
-    NO_DEFAULT_PATH
-    REQUIRED)
-  find_library(IBRT_BRLCAD_BU_LIBRARY
-    NAMES bu libbu
-    PATHS "${BRLCAD_PREFIX}/lib" "${BRLCAD_PREFIX}/lib64"
-    NO_DEFAULT_PATH
-    REQUIRED)
-  find_library(IBRT_BRLCAD_BN_LIBRARY
-    NAMES bn libbn
-    PATHS "${BRLCAD_PREFIX}/lib" "${BRLCAD_PREFIX}/lib64"
-    NO_DEFAULT_PATH
-    REQUIRED)
-  find_library(IBRT_BRLCAD_BV_LIBRARY
-    NAMES bv libbv
-    PATHS "${BRLCAD_PREFIX}/lib" "${BRLCAD_PREFIX}/lib64"
-    NO_DEFAULT_PATH
-    REQUIRED)
-
-  set(IBRT_BRLCAD_INCLUDE_DIRS "${IBRT_BRLCAD_INCLUDE_DIR}")
-  if(EXISTS "${IBRT_BRLCAD_INCLUDE_DIR}/brlcad/common.h")
-    list(APPEND IBRT_BRLCAD_INCLUDE_DIRS "${IBRT_BRLCAD_INCLUDE_DIR}/brlcad")
-  endif()
-  if(EXISTS "${IBRT_BRLCAD_INCLUDE_DIR}/OpenNURBS/opennurbs.h")
-    list(APPEND IBRT_BRLCAD_INCLUDE_DIRS "${IBRT_BRLCAD_INCLUDE_DIR}/OpenNURBS")
-  endif()
-
-  get_filename_component(IBRT_BRLCAD_LIBRARY_DIR "${IBRT_BRLCAD_RT_LIBRARY}" DIRECTORY)
   set(IBRT_BEXT_RUNTIME_DIR "${BEXT_INSTALL_DIR}/bin")
   set(IBRT_BEXT_LIBRARY_DIR "${BEXT_INSTALL_DIR}/lib")
-  set(IBRT_BRLCAD_RUNTIME_DIR "${BRLCAD_PREFIX}/bin")
 endmacro()

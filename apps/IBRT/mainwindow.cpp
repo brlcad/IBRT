@@ -503,8 +503,8 @@ QString MainWindow::demoModelsDir() const
   if (QFileInfo::exists(QDir(localDir).filePath(QStringLiteral("moss.g"))))
     return localDir;
 
-#ifdef BRLCAD_INSTALL_PREFIX
-  return QDir(QStringLiteral(BRLCAD_INSTALL_PREFIX)).filePath(QStringLiteral("share/db"));
+#ifdef BRLCAD_DB_DIR
+  return QStringLiteral(BRLCAD_DB_DIR);
 #else
   return QString();
 #endif

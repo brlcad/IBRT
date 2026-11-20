@@ -2,15 +2,18 @@
 
 ## Required Inputs
 
-The repo expects two primary configure-time inputs:
+The build needs a bext install and a BRL-CAD CMake package.
 
 - `BEXT_INSTALL_DIR`
   The built `bext` install tree, typically `<bext>/build/everything/install`.
   Alternatively set `BRLCAD_EXT_DIR` to the bext build directory (the one
   holding `install/` and `noinstall/`, as BRL-CAD does); `BEXT_INSTALL_DIR` is
   then taken as `BRLCAD_EXT_DIR/install`.
-- `BRLCAD_PREFIX`
-  The BRL-CAD install prefix
+- BRL-CAD must provide `BRLCADConfig.cmake` and the `rt`, `bu`, `bn`, and `bv`
+  components. Set `BRLCAD_ROOT` to the install prefix, add the prefix to
+  `CMAKE_PREFIX_PATH`, or set `BRLCAD_DIR` to the directory containing the
+  config file. For a BRL-CAD build tree, point `BRLCAD_DIR` at the build
+  directory.
 
 The repo resolves OSPRay, Qt, Embree, rkcommon, ISPCRT, and related runtime pieces from `BEXT_INSTALL_DIR`.
 
@@ -19,7 +22,7 @@ The repo resolves OSPRay, Qt, Embree, rkcommon, ISPCRT, and related runtime piec
 ```sh
 cmake -S /path/to/IBRT -B /path/to/IBRT/build/local \
   -DBEXT_INSTALL_DIR=/path/to/bext/.build/install \
-  -DBRLCAD_PREFIX=/path/to/brlcad/install
+  -DBRLCAD_ROOT=/path/to/brlcad/install
 ```
 
 If Qt is not included in your `bext` install, extend `CMAKE_PREFIX_PATH` with the Qt prefix:
@@ -28,7 +31,7 @@ If Qt is not included in your `bext` install, extend `CMAKE_PREFIX_PATH` with th
 cmake -S /path/to/IBRT -B /path/to/IBRT/build/local \
   -DCMAKE_PREFIX_PATH=/path/to/Qt \
   -DBEXT_INSTALL_DIR=/path/to/bext/.build/install \
-  -DBRLCAD_PREFIX=/path/to/brlcad/install
+  -DBRLCAD_ROOT=/path/to/brlcad/install
 ```
 
 ## Build
@@ -122,7 +125,7 @@ cmake -S . -B .build_intel -G Ninja \
   -DCMAKE_C_FLAGS:STRING=-fno-fast-math \
   -DCMAKE_CXX_FLAGS:STRING=-fno-fast-math \
   -DBEXT_INSTALL_DIR="$bext_build/install" \
-  -DBRLCAD_PREFIX="$brlcad_prefix"
+  -DBRLCAD_ROOT="$brlcad_prefix"
 cmake --build .build_intel --parallel 4
 ```
 
@@ -181,15 +184,15 @@ ctest --preset everything/Debug
 
 The dependency paths live in the hidden `deps-release` / `deps-debug` presets.
 To point them at your own trees without editing the committed file, create a
-`CMakeUserPresets.json` (gitignored) that overrides `BEXT_INSTALL_DIR` /
-`BRLCAD_PREFIX`, or pass them on the command line:
+`CMakeUserPresets.json` (gitignored) that overrides `BEXT_INSTALL_DIR` and
+`BRLCAD_DIR`, or pass them on the command line:
 
 ```sh
 cmake --preset everything/Debug \
   -DBEXT_INSTALL_DIR=/path/to/bext-debug/install \
-  -DBRLCAD_PREFIX=/path/to/brlcad/debug
+  -DBRLCAD_DIR=/path/to/brlcad/debug/lib/cmake/BRLCAD
 ```
 
-For scripted or CI builds, the [build.sh](../build.sh) helper honors
-`CMAKE_BUILD_TYPE`, `BEXT_INSTALL_DIR`, and `BRLCAD_PREFIX` from the
-environment.
+For scripted or CI builds, `build.sh` reads `CMAKE_BUILD_TYPE` and
+`BEXT_INSTALL_DIR` from the environment. CMake can find BRL-CAD through
+`BRLCAD_ROOT`, `BRLCAD_DIR`, or `CMAKE_PREFIX_PATH` in that same environment.
