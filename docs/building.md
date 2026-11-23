@@ -40,6 +40,39 @@ cmake -S /path/to/IBRT -B /path/to/IBRT/build/local \
 cmake --build /path/to/IBRT/build/local
 ```
 
+## BRL-CAD Bundle Manifest
+
+`cmake --install` writes a schema 1 manifest for BRL-CAD binary package
+staging.  Its default location is
+`<IBRT-build>/ibrt-install-manifest.json`; set `IBRT_BUNDLE_MANIFEST` at
+configure time to select another file, or set it to an empty string to disable
+generation:
+
+```sh
+cmake -S /path/to/IBRT -B /path/to/IBRT/build/local \
+  -DIBRT_BUNDLE_MANIFEST=/path/to/manifests/ibrt.json \
+  -DBEXT_INSTALL_DIR=/path/to/bext/install \
+  -DBRLCAD_ROOT=/path/to/brlcad/install
+cmake --build /path/to/IBRT/build/local
+cmake --install /path/to/IBRT/build/local --prefix /path/to/IBRT/install
+```
+
+To test BRL-CAD's configure-time path, configure BRL-CAD with the same file:
+
+```sh
+cmake -S /path/to/brlcad -B /path/to/brlcad/build \
+  -DBRLCAD_BUNDLE_MANIFESTS=/path/to/manifests/ibrt.json
+```
+
+To test an on-the-fly path, configure and install a second IBRT build with a
+different `IBRT_BUNDLE_MANIFEST`, then override the configured BRL-CAD value
+for that package run:
+
+```sh
+cpack --config /path/to/brlcad/build/CPackConfig.cmake \
+  -D BRLCAD_BUNDLE_MANIFESTS=/different/path/ibrt.json
+```
+
 Runtime staging is platform-specific:
 
 - On Windows, CMake inspects each IBRT executable and its runtime-loaded modules,

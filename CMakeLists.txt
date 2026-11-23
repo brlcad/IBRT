@@ -44,6 +44,8 @@ set(BEXT_INSTALL_DIR "" CACHE PATH
   "Path to the bext install tree that provides OSPRay, Qt, and related dependencies")
 set(BRLCAD_EXT_DIR "" CACHE PATH
   "Path to the bext build directory (contains install/ and noinstall/); an alternative to BEXT_INSTALL_DIR, which is then BRLCAD_EXT_DIR/install")
+set(IBRT_BUNDLE_MANIFEST "${CMAKE_BINARY_DIR}/ibrt-install-manifest.json" CACHE FILEPATH
+  "JSON bundle manifest written by cmake --install; empty disables generation")
 
 include(IBRTDependencies)
 ibrt_configure_dependencies()
@@ -51,3 +53,30 @@ include(IBRTRuntimeDeployment)
 
 add_subdirectory(plugins)
 add_subdirectory(apps)
+
+if(IBRT_BUNDLE_MANIFEST)
+  set(IBRT_BUNDLE_INSTALL_PREFIXES
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_BINARY_DIR}"
+    "${BEXT_INSTALL_DIR}"
+    "${BRLCAD_LIB_DIR}"
+  )
+  list(FILTER IBRT_BUNDLE_INSTALL_PREFIXES EXCLUDE REGEX "^$")
+  list(TRANSFORM IBRT_BUNDLE_INSTALL_PREFIXES REPLACE "\\\\" "/")
+  list(REMOVE_DUPLICATES IBRT_BUNDLE_INSTALL_PREFIXES)
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/IBRTInstallBundleManifest.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/IBRTInstallBundleManifest.cmake"
+    @ONLY
+  )
+  install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/IBRTInstallBundleManifest.cmake")
+endif()
+
+if(IBRT_BUILD_TESTS AND BUILD_TESTING)
+  add_test(NAME IBRTBundleManifestWriter
+    COMMAND "${CMAKE_COMMAND}"
+      "-DIBRT_MANIFEST_WRITER=${CMAKE_CURRENT_SOURCE_DIR}/cmake/IBRTWriteBundleManifest.cmake"
+      "-DIBRT_MANIFEST_TEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/manifest-writer-test"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/IBRTWriteBundleManifestTest.cmake")
+  set_tests_properties(IBRTBundleManifestWriter PROPERTIES LABELS "unit;cmake")
+endif()
