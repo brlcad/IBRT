@@ -67,6 +67,7 @@ class IbrtTests : public QObject
   void integrationBackendBrlcadToOsprayProducesGeometry();
   void integrationBackendValidBrlcadSceneDoesNotUseDefaultBounds();
   void integrationBackendRenderProducesNonEmptyFrame();
+  void integrationDenoiserModuleRenders();
   void integrationBackendPathTracerHorizonFollowsWorldUp();
   void integrationBackendAccumulatedSilhouettesStayOpaque();
   void integrationBackendHeadlessMossRenderWritesReferenceImages();
@@ -133,9 +134,8 @@ std::optional<QString> makeExampleBrlcadDb()
     return dbPath;
   }
 
-#ifdef BRLCAD_INSTALL_PREFIX
-  const QString mgedPath =
-      QDir(QStringLiteral(BRLCAD_INSTALL_PREFIX)).filePath(QStringLiteral("bin/mged"));
+#ifdef BRLCAD_MGED_EXECUTABLE
+  const QString mgedPath = QStringLiteral(BRLCAD_MGED_EXECUTABLE);
   if (!QFileInfo::exists(mgedPath))
     return std::nullopt;
 
@@ -236,9 +236,9 @@ std::optional<QString> makeExampleBrlcadDb()
 
 std::optional<QString> defaultMossDbPath()
 {
-#ifdef BRLCAD_INSTALL_PREFIX
+#ifdef BRLCAD_DB_DIR
   const QString dbPath =
-      QDir(QStringLiteral(BRLCAD_INSTALL_PREFIX)).filePath(QStringLiteral("share/db/moss.g"));
+      QDir(QStringLiteral(BRLCAD_DB_DIR)).filePath(QStringLiteral("moss.g"));
   if (QFileInfo::exists(dbPath))
     return dbPath;
 #endif
@@ -725,6 +725,32 @@ void IbrtTests::integrationBackendValidBrlcadSceneDoesNotUseDefaultBounds()
       && std::fabs(boundsMax.y - 1.0f) < 0.0001f
       && std::fabs(boundsMax.z - 1.0f) < 0.0001f;
   QVERIFY(!usingDefaultBounds);
+}
+
+void IbrtTests::integrationDenoiserModuleRenders()
+{
+#ifdef IBRT_TEST_DENOISER
+  QCOMPARE(ospLoadModule("denoiser"), OSP_NO_ERROR);
+
+  OsprayBackend backend;
+  backend.init();
+  backend.resize(64, 64);
+  backend.setSettingsMode(OsprayBackend::SettingsMode::Custom);
+  backend.setCustomStartScale(1);
+  backend.setCustomAccumulationEnabled(true);
+  backend.setDenoiseEnabled(true);
+
+  // Preview passes bypass denoising, so wait for full-resolution accumulation.
+  for (int attempt = 0; attempt < 100 && backend.accumulatedFrames() == 0; ++attempt) {
+    backend.advanceRender();
+    QThread::msleep(100);
+  }
+  QVERIFY2(backend.lastError().empty(), backend.lastError().c_str());
+  QVERIFY(backend.accumulatedFrames() > 0);
+  QVERIFY(frameHasNonZeroPixel(backend.pixels(), backend.width(), backend.height()));
+#else
+  QSKIP("This configuration does not stage an optional denoiser runtime.");
+#endif
 }
 
 void IbrtTests::integrationBackendRenderProducesNonEmptyFrame()

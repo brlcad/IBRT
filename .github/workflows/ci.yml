@@ -96,7 +96,7 @@ jobs:
           cmake -S . -B build/ci -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBEXT_INSTALL_DIR="$GITHUB_WORKSPACE/../bext-build/install" \
-            -DBRLCAD_PREFIX="$GITHUB_WORKSPACE/../brlcad-install"
+            -DBRLCAD_ROOT="$GITHUB_WORKSPACE/../brlcad-install"
 
       - name: Build IBRT
         run: cmake --build build/ci --config Release --parallel 4

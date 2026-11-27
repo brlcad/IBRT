@@ -47,8 +47,6 @@ if (-not (Test-Path $cachePath)) {
     throw "Build directory is not configured: $BuildDir"
 }
 
-$cacheLines = Get-Content $cachePath
-$brlcadPrefix = Get-CacheValue $cacheLines "BRLCAD_PREFIX"
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 
 if (-not $SkipBuild) {
@@ -58,6 +56,7 @@ if (-not $SkipBuild) {
     }
 }
 
+$dbDir = Get-CacheValue (Get-Content -LiteralPath $cachePath) "IBRT_BRLCAD_DB_DIR"
 $viewerPath = Find-TargetFile -SearchRoot $BuildDir -Name "IBRT.exe"
 $viewerDir = Split-Path -Parent $viewerPath
 $outputRoot = if ($OutputDir) { $OutputDir } else { Join-Path $BuildDir "package\IBRT" }
@@ -76,7 +75,6 @@ foreach ($docName in @("README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTI
     Copy-Item -LiteralPath (Join-Path $repoRoot $docName) -Destination $outputRoot -Force
 }
 
-$dbDir = Join-Path $brlcadPrefix "share\db"
 foreach ($demoName in @("moss.g", "havoc.g", "axis.g")) {
     $demoSource = Join-Path $dbDir $demoName
     if (Test-Path $demoSource) {

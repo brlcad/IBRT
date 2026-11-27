@@ -19,7 +19,6 @@ target_include_directories(ospray_module_brl_cad PRIVATE
   "${OSPRAY_INCLUDE_DIR}/ospray/SDK/modules/cpu"
   "${RKCOMMON_INCLUDE_DIRS}"
   "${EMBREE_INCLUDE_DIRS}"
-  ${IBRT_BRLCAD_INCLUDE_DIRS}
 )
 
 if(OSPRAY_ENABLE_VOLUMES)
@@ -40,7 +39,6 @@ include_directories_ispc(
   "${OSPRAY_INCLUDE_DIR}/ospray/SDK/modules/cpu"
   "${RKCOMMON_INCLUDE_DIRS}"
   "${EMBREE_INCLUDE_DIRS}"
-  ${IBRT_BRLCAD_INCLUDE_DIRS}
   "${CMAKE_CURRENT_SOURCE_DIR}/geometry"
 )
 
@@ -55,21 +53,25 @@ target_link_libraries(ospray_module_brl_cad PRIVATE
   ospray::ospray_module_cpu
   rkcommon::rkcommon
   ispcrt::ispcrt
-  ${IBRT_BRLCAD_RT_LIBRARY}
-  ${IBRT_BRLCAD_BU_LIBRARY}
-  ${IBRT_BRLCAD_BN_LIBRARY}
+  BRLCAD::rt
+  BRLCAD::bu
+  BRLCAD::bn
 )
 
 if(APPLE)
-  set(_ibrt_plugin_rpath "@loader_path;${IBRT_BEXT_LIBRARY_DIR};${IBRT_BRLCAD_LIBRARY_DIR}")
+  set(_ibrt_plugin_rpath "@loader_path;${IBRT_BEXT_LIBRARY_DIR};${BRLCAD_LIB_DIR}")
 elseif(UNIX)
-  set(_ibrt_plugin_rpath "\$ORIGIN;${IBRT_BEXT_LIBRARY_DIR};${IBRT_BRLCAD_LIBRARY_DIR}")
+  set(_ibrt_plugin_rpath "\$ORIGIN;${IBRT_BEXT_LIBRARY_DIR};${BRLCAD_LIB_DIR}")
 endif()
 
 set_target_properties(ospray_module_brl_cad PROPERTIES
   VERSION ${OSPRAY_VERSION}
   SOVERSION ${OSPRAY_SOVERSION}
 )
+
+if(MINGW)
+  set_target_properties(ospray_module_brl_cad PROPERTIES PREFIX "")
+endif()
 
 if(UNIX)
   set_target_properties(ospray_module_brl_cad PROPERTIES

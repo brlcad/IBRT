@@ -2,15 +2,18 @@
 
 ## Required Inputs
 
-The repo expects two primary configure-time inputs:
+The build needs a bext install and a BRL-CAD CMake package.
 
 - `BEXT_INSTALL_DIR`
   The built `bext` install tree, typically `<bext>/build/everything/install`.
   Alternatively set `BRLCAD_EXT_DIR` to the bext build directory (the one
   holding `install/` and `noinstall/`, as BRL-CAD does); `BEXT_INSTALL_DIR` is
   then taken as `BRLCAD_EXT_DIR/install`.
-- `BRLCAD_PREFIX`
-  The BRL-CAD install prefix
+- BRL-CAD must provide `BRLCADConfig.cmake` and the `rt`, `bu`, `bn`, and `bv`
+  components. Set `BRLCAD_ROOT` to the install prefix, add the prefix to
+  `CMAKE_PREFIX_PATH`, or set `BRLCAD_DIR` to the directory containing the
+  config file. For a BRL-CAD build tree, point `BRLCAD_DIR` at the build
+  directory.
 
 The repo resolves OSPRay, Qt, Embree, rkcommon, ISPCRT, and related runtime pieces from `BEXT_INSTALL_DIR`.
 
@@ -19,7 +22,7 @@ The repo resolves OSPRay, Qt, Embree, rkcommon, ISPCRT, and related runtime piec
 ```sh
 cmake -S /path/to/IBRT -B /path/to/IBRT/build/local \
   -DBEXT_INSTALL_DIR=/path/to/bext/.build/install \
-  -DBRLCAD_PREFIX=/path/to/brlcad/install
+  -DBRLCAD_ROOT=/path/to/brlcad/install
 ```
 
 If Qt is not included in your `bext` install, extend `CMAKE_PREFIX_PATH` with the Qt prefix:
@@ -28,7 +31,7 @@ If Qt is not included in your `bext` install, extend `CMAKE_PREFIX_PATH` with th
 cmake -S /path/to/IBRT -B /path/to/IBRT/build/local \
   -DCMAKE_PREFIX_PATH=/path/to/Qt \
   -DBEXT_INSTALL_DIR=/path/to/bext/.build/install \
-  -DBRLCAD_PREFIX=/path/to/brlcad/install
+  -DBRLCAD_ROOT=/path/to/brlcad/install
 ```
 
 ## Build
@@ -45,8 +48,13 @@ Runtime staging is platform-specific:
   supplies Qt's runtime plugins.
 - On macOS, Linux, and other Unix platforms, the build keeps the configured
   dependency trees on the runtime search path and stages the required local
-  OSPRay libraries and module symlinks. It does not copy a complete dependency
-  `bin` or `lib` directory.
+  OSPRay libraries and module symlinks. When the bext SDK includes the optional
+  denoiser module, staging also includes that module and its Open Image Denoise
+  libraries, including device libraries loaded at runtime. OSPRay locates
+  modules beside its loaded core library, so the denoiser accompanies the
+  local OSPRay copy. Open Image Denoise libraries go in the sibling `lib`
+  directory to preserve their package runtime search paths. Staging does
+  not copy a complete dependency `bin` or `lib` directory.
 - On other platforms, runtime dependencies remain in their configured locations;
   the out-of-process render worker is disabled when the platform is unsupported.
 
@@ -95,6 +103,61 @@ The generator is **not** fixed by the presets, so the same preset works with
 Ninja, Visual Studio, or another generator — pick one with `-G`, the
 `CMAKE_GENERATOR` environment variable, or your IDE.
 
+## Intel oneAPI on Linux
+
+IntelLLVM 2026.2 has been validated with the viewer, both plugins, render
+worker, offline renderer, and all six CTest targets. Build bext and
+BRL-CAD with the same Intel toolchain and Release configuration first.
+See the [bext setup instructions](https://github.com/BRL-CAD/bext/blob/main/INSTALL.md#intel-oneapi-on-linux)
+and BRL-CAD's `doc/README.Linux` for oneAPI initialization and the optional
+native GCC runtime-selection wrappers.
+
+Use the same initialized Bash shell and exported `CC` and `CXX` compiler
+paths. From the IBRT source directory, with sibling bext and BRL-CAD
+checkouts:
+
+```sh
+bext_build="$(cd ../bext/.build_intel && pwd)"
+brlcad_prefix="$(cd ../brlcad/.build_intel/install && pwd)"
+cmake -S . -B .build_intel -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+  -DCMAKE_C_FLAGS:STRING=-fno-fast-math \
+  -DCMAKE_CXX_FLAGS:STRING=-fno-fast-math \
+  -DBEXT_INSTALL_DIR="$bext_build/install" \
+  -DBRLCAD_ROOT="$brlcad_prefix"
+cmake --build .build_intel --parallel 4
+```
+
+The explicit arithmetic flags match BRL-CAD's precise floating-point
+settings. Keep them when using IntelLLVM for reproducible geometry and
+image calculations.
+
+For headless tests with Xvfb:
+
+```sh
+xvfb-run -a -s '-screen 0 1280x1024x24' \
+  env LIBGL_ALWAYS_SOFTWARE=1 \
+  ctest --test-dir .build_intel --parallel 2 --output-on-failure
+```
+
+The tests include the Moss reference-image comparison, both offline
+visualization modes, plugin loading, and worker integration. The reference
+render is written to
+`.build_intel/apps/IBRT/test-artifacts/moss-reference.png`.
+
+Initialize oneAPI in each new shell before building, testing, or launching
+the viewer:
+
+```sh
+source "$oneapi_root/setvars.sh"
+.build_intel/apps/IBRT/IBRT
+```
+
+Set `oneapi_root` to the oneAPI installation directory. The configured
+runtime search paths locate bext and BRL-CAD, while the oneAPI environment
+supplies Intel shared libraries such as `libsvml` and `libimf`.
+
 ## Presets
 
 The committed [CMakePresets.json](../CMakePresets.json) defines:
@@ -121,15 +184,15 @@ ctest --preset everything/Debug
 
 The dependency paths live in the hidden `deps-release` / `deps-debug` presets.
 To point them at your own trees without editing the committed file, create a
-`CMakeUserPresets.json` (gitignored) that overrides `BEXT_INSTALL_DIR` /
-`BRLCAD_PREFIX`, or pass them on the command line:
+`CMakeUserPresets.json` (gitignored) that overrides `BEXT_INSTALL_DIR` and
+`BRLCAD_DIR`, or pass them on the command line:
 
 ```sh
 cmake --preset everything/Debug \
   -DBEXT_INSTALL_DIR=/path/to/bext-debug/install \
-  -DBRLCAD_PREFIX=/path/to/brlcad/debug
+  -DBRLCAD_DIR=/path/to/brlcad/debug/lib/cmake/BRLCAD
 ```
 
-For scripted or CI builds, the [build.sh](../build.sh) helper honors
-`CMAKE_BUILD_TYPE`, `BEXT_INSTALL_DIR`, and `BRLCAD_PREFIX` from the
-environment.
+For scripted or CI builds, `build.sh` reads `CMAKE_BUILD_TYPE` and
+`BEXT_INSTALL_DIR` from the environment. CMake can find BRL-CAD through
+`BRLCAD_ROOT`, `BRLCAD_DIR`, or `CMAKE_PREFIX_PATH` in that same environment.

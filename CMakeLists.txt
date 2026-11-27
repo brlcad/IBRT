@@ -44,10 +44,10 @@ set(BEXT_INSTALL_DIR "" CACHE PATH
   "Path to the bext install tree that provides OSPRay, Qt, and related dependencies")
 set(BRLCAD_EXT_DIR "" CACHE PATH
   "Path to the bext build directory (contains install/ and noinstall/); an alternative to BEXT_INSTALL_DIR, which is then BRLCAD_EXT_DIR/install")
-set(BRLCAD_PREFIX "" CACHE PATH "Path to the BRL-CAD install prefix")
 
 include(IBRTDependencies)
 ibrt_configure_dependencies()
+include(IBRTRuntimeDeployment)
 
 add_subdirectory(plugins)
 add_subdirectory(apps)

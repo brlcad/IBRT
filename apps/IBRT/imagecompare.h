@@ -1,12 +1,10 @@
 // Copyright (c) 2026 BRL-CAD Visualizer contributors
 // SPDX-License-Identifier: MIT
 
-// Tolerance / perceptual image comparison for raw RGBA buffers. The
-// reference-render regression test currently compares an exact SHA-256 of the
-// PNG, which is really a toolchain pin:
-// OSPRay/ISPC output is not bit-reproducible across SIMD targets, so the test
-// fails on a visually-identical image. This header provides the pieces of a
-// tolerance-based comparator that both the CTest and unit tests can share.
+// Tolerance-based image comparison for raw RGBA buffers. OSPRay/ISPC output
+// is not bit-reproducible across SIMD targets, so compare decoded pixels rather
+// than PNG checksums. The reference-render CTest and standalone unit tests share
+// these tolerances to accept rounding noise while rejecting meaningful changes.
 //
 // It operates on plain interleaved 8-bit RGBA byte buffers so it has no Qt /
 // image-library dependency and is trivially unit-testable. Callers decode PNGs

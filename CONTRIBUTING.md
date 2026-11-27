@@ -11,7 +11,7 @@
 The committed CMake interface for this repo is:
 
 - `BEXT_INSTALL_DIR`
-- `BRLCAD_PREFIX`
+- A BRL-CAD CMake config package discoverable through `find_package`
 
 Do not reintroduce repo-local OSPRay forks, superbuild logic, or per-dependency prefix variables unless there is a strong project-level reason.
 
