@@ -226,6 +226,8 @@ if(IBRT_BUILD_VIEWER)
       COMMAND "${WINDEPLOYQT_EXECUTABLE}"
         --no-compiler-runtime "$<TARGET_FILE:IBRT>"
       COMMENT "Running windeployqt for IBRT...")
+
+    install(FILES qt.conf DESTINATION "${CMAKE_INSTALL_BINDIR}")
   endif()
 
   install(TARGETS IBRT
