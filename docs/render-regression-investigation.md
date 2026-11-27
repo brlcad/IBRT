@@ -30,9 +30,12 @@ ABI-incompatible plugin when the package does not report its ISPC target.
 | `ec2394b` remove remaining Apple hacks | Exact reference match | Keep |
 | `fb12eaa` architecture documentation | No rendering effect | Keep |
 
-The latest tree with the ISA fix produces a PNG byte-for-byte identical to the
-embedded baseline. `IBRTReferenceMossSciVis` regenerates that image through the
-external bext stack and checks its SHA-256 during CTest.
+The tree with the ISA fix reproduced the embedded baseline byte for byte in
+that investigation. `IBRTReferenceMossSciVis` regenerates the image through the
+external bext stack and compares decoded RGBA pixels with `IBRTCompareReference`
+during CTest. The shared tolerances in `imagecompare.h` allow small SIMD rounding
+differences while rejecting meaningful rendering changes, independently of PNG
+encoding.
 
 ## Separate Loader Issue
 

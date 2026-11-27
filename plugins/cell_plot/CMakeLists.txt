@@ -11,14 +11,13 @@ add_library(ibrt_cell_plot_plugin MODULE
 target_compile_features(ibrt_cell_plot_plugin PRIVATE cxx_std_17)
 target_include_directories(ibrt_cell_plot_plugin PRIVATE
   "${PROJECT_SOURCE_DIR}/include"
-  ${IBRT_BRLCAD_INCLUDE_DIRS}
 )
 target_link_libraries(ibrt_cell_plot_plugin PRIVATE
   Qt6::Core
   Qt6::Gui
-  ${IBRT_BRLCAD_RT_LIBRARY}
-  ${IBRT_BRLCAD_BU_LIBRARY}
-  ${IBRT_BRLCAD_BN_LIBRARY}
+  BRLCAD::rt
+  BRLCAD::bu
+  BRLCAD::bn
 )
 
 set_target_properties(ibrt_cell_plot_plugin PROPERTIES
@@ -26,9 +25,9 @@ set_target_properties(ibrt_cell_plot_plugin PROPERTIES
 )
 
 if(APPLE)
-  set(_ibrt_cell_plot_rpath "@loader_path/../..;${IBRT_BRLCAD_LIBRARY_DIR}")
+  set(_ibrt_cell_plot_rpath "@loader_path/../..;${BRLCAD_LIB_DIR}")
 elseif(UNIX)
-  set(_ibrt_cell_plot_rpath "\$ORIGIN/../..;${IBRT_BRLCAD_LIBRARY_DIR}")
+  set(_ibrt_cell_plot_rpath "\$ORIGIN/../..;${BRLCAD_LIB_DIR}")
 endif()
 
 if(UNIX)
@@ -49,8 +48,13 @@ if(IBRT_BUILD_TESTS AND BUILD_TESTING)
   target_include_directories(IBRTCellPlotPluginSmoke PRIVATE
     "${PROJECT_SOURCE_DIR}/include")
   target_link_libraries(IBRTCellPlotPluginSmoke PRIVATE Qt6::Core Qt6::Gui)
+  ibrt_deploy_runtime_bundle(IBRTCellPlotPluginSmoke ibrt_cell_plot_plugin)
+  if(UNIX)
+    set_target_properties(IBRTCellPlotPluginSmoke PROPERTIES
+      BUILD_RPATH "${IBRT_BEXT_LIBRARY_DIR};${BRLCAD_LIB_DIR}")
+  endif()
 
-  set(_ibrt_cell_plot_moss_db "${BRLCAD_PREFIX}/share/db/moss.g")
+  set(_ibrt_cell_plot_moss_db "${IBRT_BRLCAD_DB_DIR}/moss.g")
   if(EXISTS "${_ibrt_cell_plot_moss_db}")
     add_test(NAME IBRTCellPlotPluginSmoke
       COMMAND IBRTCellPlotPluginSmoke

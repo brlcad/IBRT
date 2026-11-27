@@ -28,7 +28,9 @@ execute_process(
 if(NOT _compare_result EQUAL 0)
   message(FATAL_ERROR
     "Moss render differs from the current reference.\n"
-    "${_compare_stdout}${_compare_stderr}\nOutput: ${IBRT_OUTPUT}")
+    "${_compare_stdout}${_compare_stderr}\n"
+    "Output: ${IBRT_OUTPUT}")
 endif()
 
-message(STATUS "Moss reference render is within tolerance. ${_compare_stdout}")
+string(STRIP "${_compare_stdout}" _compare_summary)
+message(STATUS "Moss reference render is within tolerance. ${_compare_summary}")

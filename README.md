@@ -27,7 +27,7 @@ This repo does not vendor or build OSPRay itself anymore.
 You need:
 
 - a `bext` install tree, typically something like `<bext>/.build/install`
-- a BRL-CAD install prefix
+- a BRL-CAD build or install that provides `BRLCADConfig.cmake`
 - CMake 3.20+
 - a working C++ toolchain
 
@@ -36,12 +36,14 @@ Example:
 ```sh
 cmake -S . -B build/local \
   -DBEXT_INSTALL_DIR=/path/to/bext/.build/install \
-  -DBRLCAD_PREFIX=/path/to/brlcad/install
+  -DBRLCAD_ROOT=/path/to/brlcad/install
 cmake --build build/local
 ctest --test-dir build/local --output-on-failure
 ```
 
-If Qt is not part of the supplied `bext` install, extend `CMAKE_PREFIX_PATH` when configuring.
+You can also put the BRL-CAD install on `CMAKE_PREFIX_PATH` or set
+`BRLCAD_DIR` to the directory containing `BRLCADConfig.cmake`.
+If Qt is installed separately, add its prefix to `CMAKE_PREFIX_PATH`.
 
 ### Debug and Release
 
@@ -67,7 +69,7 @@ More detail lives in [docs/building.md](docs/building.md).
 - The BRL-CAD plugin is built in this repo and deployed into the local runtime output for the app, worker, and tests.
 - The prototype cell-plot plugin is deployed under `plugins/visualizations` beside the viewer and
   `IBRTOfflineRender` executables. The headless renderer enables it explicitly with `--cell-plot`.
-- Demo BRL-CAD databases are loaded from `BRLCAD_PREFIX/share/db` and copied into local viewer runtimes when available.
+- Demo databases are copied from the BRL-CAD package's data directory into local viewer runtimes when available.
 - The viewer's **Visualization → Hidden lines** control offers `Off`, `Overlay`, and `Edges only`; it works independently of the selected OSPRay renderer.
 - Headless renders use the same effect with `--hidden-lines off|overlay|only`, for example:
 

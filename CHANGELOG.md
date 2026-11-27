@@ -6,7 +6,7 @@
   first `0.1.0` beta.
 - Reshaped the repo into an app-and-plugins layout rooted at `apps/` and `plugins/`.
 - Removed the vendored OSPRay source tree and upstream-only superbuild/test content.
-- Switched the build contract to `BEXT_INSTALL_DIR` plus `BRLCAD_PREFIX`.
+- Build against an external bext install and a BRL-CAD CMake config package.
 - Renamed the viewer location to `apps/IBRT` and kept local deployment of `ospray_module_brl_cad`.
 - Limited Windows runtime staging to transitive DLL dependencies instead of
   copying the complete BRL-CAD and bext `bin` directories.
